@@ -8,6 +8,10 @@ import type {
 
 const ZWC_RE = /[\u200B-\u200D\u2060]/;
 
+function stripCQCodes(rawMessage: string): string {
+  return rawMessage.replace(/\[CQ:[^\]]+\]/g, "").trim();
+}
+
 function isNailong(text: string): boolean {
   return text.includes(HA) && ZWC_RE.test(text);
 }
@@ -73,7 +77,7 @@ export function createHandler(
 
     if (!isAtBot(event.message, config.botQQ)) return;
 
-    const nailong = extractNailong(event.raw_message);
+    const nailong = extractNailong(stripCQCodes(event.raw_message));
     if (nailong) {
       await replyWithTranslation(
         client,
@@ -89,7 +93,7 @@ export function createHandler(
     if (replySeg) {
       try {
         const replied = await client.getMessage(Number(replySeg.id));
-        const rn = extractNailong(replied.raw_message);
+        const rn = extractNailong(stripCQCodes(replied.raw_message));
         if (rn) {
           await replyWithTranslation(
             client,
@@ -108,7 +112,7 @@ export function createHandler(
 
     const prev = cache.getPrevious(event.group_id);
     if (prev) {
-      const pn = extractNailong(prev.raw_message);
+      const pn = extractNailong(stripCQCodes(prev.raw_message));
       if (pn) {
         await replyWithTranslation(
           client,

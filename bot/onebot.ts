@@ -39,6 +39,7 @@ export class OneBotClient {
   private reconnectCount = 0;
   private maxReconnect = 10;
   private reconnectDelay = 5000;
+  private reconnecting = false;
   private readonly wsUrl: string;
   private readonly httpUrl: string;
 
@@ -110,7 +111,7 @@ export class OneBotClient {
     return body.data;
   }
 
-  private handleMessage(data: WebSocket.RawData): void {
+  private async handleMessage(data: WebSocket.RawData): Promise<void> {
     try {
       const event = JSON.parse(data.toString()) as OneBotEvent;
       if (
@@ -120,7 +121,11 @@ export class OneBotClient {
       ) {
         const ge = event as GroupMessageEvent;
         for (const fn of this.handlers) {
-          fn(ge);
+          try {
+            await fn(ge);
+          } catch {
+            // log handler error but continue processing
+          }
         }
       }
     } catch {
@@ -129,6 +134,9 @@ export class OneBotClient {
   }
 
   private tryReconnect(): void {
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+
     if (this.reconnectCount >= this.maxReconnect) {
       console.error("[onebot] 重连次数已达上限，退出");
       process.exit(1);
@@ -138,8 +146,10 @@ export class OneBotClient {
       `[onebot] ${this.reconnectDelay / 1000}s 后进行第 ${this.reconnectCount} 次重连...`
     );
     setTimeout(() => {
+      this.reconnecting = false;
       this.connect().catch(() => {
-        // reconnect failure will trigger close event again
+        this.reconnecting = false;
+        this.tryReconnect();
       });
     }, this.reconnectDelay);
   }
