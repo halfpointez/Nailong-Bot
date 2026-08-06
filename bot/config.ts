@@ -31,7 +31,7 @@ function parseEnvFile(path: string): Record<string, string> {
 
 export function loadConfig(): Config {
   const envPath = resolve(process.cwd(), ".env");
-  let env: Record<string, string>;
+  let env: Record<string, string> = {};
   try {
     env = parseEnvFile(envPath);
   } catch {
