@@ -5,7 +5,8 @@ import { handleCommand } from "./commands.ts";
 import { recordMessage, checkBurst } from "./scheduler.ts";
 import { addCoins } from "./nailong-party.ts";
 import { isEasterEggCoolingDown, triggerEasterEgg } from "./database.ts";
-import { chatWithNailong } from "./llm.ts";
+import { chatWithNailong, shouldPopIn } from "./llm.ts";
+import { MessageBuffer, PopInGuard, assembleContext } from "./memory.ts";
 
 const ZWC_RE = /[\u200B-\u200D\u2060]/;
 
@@ -62,6 +63,8 @@ export function createHandler(
   config: Config
 ): (event: GroupMessageEvent) => Promise<void> {
   const cache = new MessageCache();
+  const buffer = new MessageBuffer();
+  const guard = new PopInGuard();
 
   return async (event: GroupMessageEvent) => {
     cache.add(event);
@@ -72,6 +75,12 @@ export function createHandler(
 
     if (!isAtBot(event.message, config.botQQ)) {
       await checkEasterEggs(client, config, event);
+      if (config.llmEnabled) {
+        buffer.add(event.group_id, String(event.user_id), event.raw_message, "");
+        if (buffer.count(event.group_id) >= 5) {
+          await tryPopIn(client, config, event, buffer, guard);
+        }
+      }
       return;
     }
 
@@ -121,7 +130,12 @@ export function createHandler(
     if (config.llmEnabled) {
       try {
         const cleaned = stripCQCodes(event.raw_message);
-        const reply = await chatWithNailong(config, cleaned);
+        const ctx = assembleContext(event.group_id);
+        const reply = await chatWithNailong(config, cleaned, {
+          groupId: event.group_id,
+          recentMessages: [],
+          memberContext: ctx,
+        });
         await client.sendGroupMessage(event.group_id, [
           { type: "reply", data: { id: String(event.message_id) } },
           { type: "text", data: { text: reply } },
@@ -187,4 +201,52 @@ async function replyText(
     { type: "reply", data: { id: String(event.message_id) } },
     { type: "text", data: { text } },
   ]);
+}
+
+async function tryPopIn(
+  client: OneBotClient,
+  config: Config,
+  event: GroupMessageEvent,
+  buffer: MessageBuffer,
+  guard: PopInGuard
+): Promise<void> {
+  if (!guard.canPopIn(event.group_id)) {
+    buffer.clear(event.group_id);
+    return;
+  }
+
+  const recent = buffer.getRecent(event.group_id);
+  const context = assembleContext(event.group_id);
+
+  try {
+    const should = await shouldPopIn(config, {
+      groupId: event.group_id,
+      recentMessages: recent,
+      memberContext: context,
+    });
+
+    if (!should) {
+      buffer.clear(event.group_id);
+      return;
+    }
+
+    const lines = recent.map(m => `${m.name}：${m.text}`).join("\n");
+    const popPrompt = `刚才大家在聊天：\n${lines}\n\n奶龙你来回应一下~`;
+
+    const reply = await chatWithNailong(config, popPrompt, {
+      groupId: event.group_id,
+      recentMessages: recent,
+      memberContext: context,
+    });
+
+    await client.sendGroupMessage(event.group_id, [
+      { type: "text", data: { text: reply } },
+    ]);
+
+    guard.recordPopIn(event.group_id);
+  } catch (err) {
+    console.error("[pop-in] 冒泡失败:", err);
+  }
+
+  buffer.clear(event.group_id);
 }
