@@ -143,9 +143,9 @@ export async function initDb(resourceDir: string): Promise<void> {
       );
     }
   }
-  const mc = db.prepare("SELECT COUNT(*) as c FROM member_profiles").get() as { c: number };
-  const cm = db.prepare("SELECT COUNT(*) as c FROM chat_memories").get() as { c: number };
-  console.log(`[db] 初始化: nailongs=${countRow?.c ?? 0}, member_profiles=${mc.c}, chat_memories=${cm.c}, 路径=${dbPath}`);
+  const mcRow = db.prepare("SELECT COUNT(*) as c FROM member_profiles").get() as unknown as { c: number };
+  const cmRow = db.prepare("SELECT COUNT(*) as c FROM chat_memories").get() as unknown as { c: number };
+  console.log(`[db] 初始化: nailongs=${countRow?.c ?? 0}, member_profiles=${mcRow.c}, chat_memories=${cmRow.c}, 路径=${dbPath}`);
 }
 
 export function getUser(userId: string): UserRecord {
