@@ -63,7 +63,7 @@ export function initDb(resourceDir: string): void {
       user_id  TEXT NOT NULL,
       egg_name TEXT NOT NULL,
       date     TEXT NOT NULL,
-      PRIMARY KEY (user_id, egg_name)
+      PRIMARY KEY (user_id, egg_name, date)
     );
   `);
 
