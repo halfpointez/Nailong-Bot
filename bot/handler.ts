@@ -1,6 +1,6 @@
 import { decodeFromNailong, encodeToNailong, HA } from "../src/nailong.ts";
 import type { Config } from "./config.ts";
-import type { OneBotClient, GroupMessageEvent, MessageSegment } from "./onebot.ts";
+import type { OneBotClient, GroupMessageEvent, PrivateMessageEvent, MessageSegment } from "./onebot.ts";
 import { handleCommand } from "./commands.ts";
 import { recordMessage, checkBurst } from "./scheduler.ts";
 import { addCoins } from "./nailong-party.ts";
@@ -254,4 +254,57 @@ async function tryPopIn(
   }
 
   buffer.clear(event.group_id);
+}
+
+export function createPrivateHandler(
+  client: OneBotClient,
+  config: Config
+): (event: PrivateMessageEvent) => Promise<void> {
+  return async (event: PrivateMessageEvent) => {
+    const userId = event.user_id;
+    const cleaned = stripCQCodes(event.raw_message);
+
+    const cmdHandled = await handleCommand(client, config, event as unknown as GroupMessageEvent);
+    if (cmdHandled) return;
+
+    const nailong = extractNailong(cleaned);
+    if (nailong) {
+      let result: string;
+      try { result = decodeFromNailong(nailong); } catch { result = config.replies.decodeFail; }
+      await client.sendPrivateMessage(userId, [
+        { type: "text", data: { text: `奶龙听到你说：${result}` } },
+      ]);
+      return;
+    }
+
+    const normalText = cleaned.replace(/^\/?翻译\s*/i, "").trim();
+    if (normalText && cleaned.match(/^\/?翻译[\s\u3000]/i)) {
+      const encoded = encodeToNailong(normalText);
+      await client.sendPrivateMessage(userId, [
+        { type: "text", data: { text: `奶龙语：${encoded}` } },
+      ]);
+      return;
+    }
+
+    if (config.llmEnabled) {
+      try {
+        const timeCtx = getTimeContext();
+        const reply = await chatWithNailong(config, cleaned, {
+          groupId: 0,
+          recentMessages: [],
+          memberContext: timeCtx,
+        });
+        await client.sendPrivateMessage(userId, [
+          { type: "text", data: { text: reply } },
+        ]);
+        return;
+      } catch (err) {
+        console.error("[private] LLM 调用失败:", err);
+      }
+    }
+
+    await client.sendPrivateMessage(userId, [
+      { type: "text", data: { text: "哼~ 奶龙没听懂你要做什么！试试@奶龙 帮助 吧！" } },
+    ]);
+  };
 }

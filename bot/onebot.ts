@@ -23,6 +23,12 @@ export type GroupMessageEvent = OneBotEvent & {
   group_id: number;
 };
 
+export type PrivateMessageEvent = OneBotEvent & {
+  post_type: "message";
+  message_type: "private";
+  user_id: number;
+};
+
 export interface GetMsgResponse {
   status: string;
   retcode: number;
@@ -36,6 +42,7 @@ export interface GetMsgResponse {
 export class OneBotClient {
   private ws: WebSocket | null = null;
   private handlers: ((e: GroupMessageEvent) => void)[] = [];
+  private privateHandlers: ((e: PrivateMessageEvent) => void)[] = [];
   private reconnectCount = 0;
   private maxReconnect = 10;
   private reconnectDelay = 5000;
@@ -75,6 +82,10 @@ export class OneBotClient {
     this.handlers.push(fn);
   }
 
+  onPrivateMessage(fn: (e: PrivateMessageEvent) => void): void {
+    this.privateHandlers.push(fn);
+  }
+
   async sendGroupMessage(
     groupId: number,
     message: MessageSegment[]
@@ -91,6 +102,25 @@ export class OneBotClient {
     const body = (await res.json()) as { status: string; retcode: number };
     if (body.status !== "ok" || body.retcode !== 0) {
       throw new Error(`send_group_msg 失败: ${JSON.stringify(body)}`);
+    }
+  }
+
+  async sendPrivateMessage(
+    userId: number,
+    message: MessageSegment[]
+  ): Promise<void> {
+    const url = `${this.httpUrl}/send_private_msg`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, message, auto_escape: false }),
+    });
+    if (!res.ok) {
+      throw new Error(`send_private_msg 失败: HTTP ${res.status}`);
+    }
+    const body = (await res.json()) as { status: string; retcode: number };
+    if (body.status !== "ok" || body.retcode !== 0) {
+      throw new Error(`send_private_msg 失败: ${JSON.stringify(body)}`);
     }
   }
 
@@ -114,18 +144,17 @@ export class OneBotClient {
   private async handleMessage(data: WebSocket.RawData): Promise<void> {
     try {
       const event = JSON.parse(data.toString()) as OneBotEvent;
-      if (
-        event.post_type === "message" &&
-        event.message_type === "group" &&
-        event.sub_type === "normal"
-      ) {
+      if (event.post_type !== "message") return;
+
+      if (event.message_type === "group" && event.sub_type === "normal") {
         const ge = event as GroupMessageEvent;
         for (const fn of this.handlers) {
-          try {
-            await fn(ge);
-          } catch {
-            // log handler error but continue processing
-          }
+          try { await fn(ge); } catch { /* continue */ }
+        }
+      } else if (event.message_type === "private" && event.sub_type === "friend") {
+        const pe = event as PrivateMessageEvent;
+        for (const fn of this.privateHandlers) {
+          try { await fn(pe); } catch { /* continue */ }
         }
       }
     } catch {

@@ -1,6 +1,6 @@
 import { loadConfig } from "./config.ts";
 import { OneBotClient } from "./onebot.ts";
-import { createHandler } from "./handler.ts";
+import { createHandler, createPrivateHandler } from "./handler.ts";
 import { initDb } from "./database.ts";
 import { startScheduler, startLifecycle } from "./scheduler.ts";
 import { startDailySummarizer } from "./memory.ts";
@@ -11,6 +11,7 @@ initDb(config.nailongResourceDir)
   .then(() => {
     const client = new OneBotClient(config);
     client.onGroupMessage(createHandler(client, config));
+    client.onPrivateMessage(createPrivateHandler(client, config));
 
     client
       .connect()
