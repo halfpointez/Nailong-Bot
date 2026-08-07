@@ -1,4 +1,4 @@
-import { decodeFromNailong, HA } from "../src/nailong.ts";
+import { decodeFromNailong, encodeToNailong, HA } from "../src/nailong.ts";
 import type { Config } from "./config.ts";
 import type { OneBotClient, GroupMessageEvent, MessageSegment } from "./onebot.ts";
 import { handleCommand } from "./commands.ts";
@@ -105,6 +105,16 @@ export function createHandler(
         await replyWithTranslation(client, event.group_id, prev.message_id, pn, config.replies.decodeFail);
         return;
       }
+    }
+
+    const normalText = stripCQCodes(event.raw_message).replace(/^\/?翻译\s*/i, "").trim();
+    if (normalText && stripCQCodes(event.raw_message).match(/^\/?翻译[\s\u3000]/i)) {
+      const encoded = encodeToNailong(normalText);
+      await client.sendGroupMessage(event.group_id, [
+        { type: "reply", data: { id: String(event.message_id) } },
+        { type: "text", data: { text: `奶龙语：${encoded}` } },
+      ]);
+      return;
     }
 
     await replyText(client, event, config.replies.notFound);
