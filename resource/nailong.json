@@ -1,10 +1,178 @@
 [
   {
-    "id": "happy-nailong",
-    "name": "快乐奶龙",
-    "description": "喜欢的食物是空气",
-    "analysis": "你今天自带好心情光环，遇到什么事情都可以笑着面对。",
-    "file": "happy-nailong.png",
+    "id": "ak-nailong",
+    "name": "AK奶龙",
+    "description": "手持AK的越共奶龙",
+    "analysis": "你今天火力全开，适合直接推进拖了很久的事。缺点是容易冲太快，出发前先看一眼地图。",
+    "file": "AK奶龙.gif",
+    "rarity": "rare"
+  },
+  {
+    "id": "touxiao-nailong",
+    "name": "偷笑奶龙",
+    "description": "偷偷在笑不知道在打什么坏主意",
+    "analysis": "你今天灵感带着一点可爱的幽默感。适合整点小活，大家反而会觉得你很有趣。",
+    "file": "偷笑奶龙.gif",
     "rarity": "common"
+  },
+  {
+    "id": "chihaya-nailong",
+    "name": "千早奶音",
+    "description": "隔壁片场跑过来的千早爱音",
+    "analysis": "你今天频率很高，适合用活泼的态度化解压力。别把自己绷太紧，松一点也能很厉害。",
+    "file": "千早奶音.gif",
+    "rarity": "rare"
+  },
+  {
+    "id": "you-are-nailong",
+    "name": "原来你才是奶龙",
+    "description": "我才是奶龙！",
+    "analysis": "你今天就是主角，别怀疑。该你发光的时候就大胆站出来，大家都等着看呢。",
+    "file": "原来你才是奶龙!.jpg",
+    "rarity": "epic"
+  },
+  {
+    "id": "poem-nailong",
+    "name": "唐诗奶龙",
+    "description": "唐??唐",
+    "analysis": "你今天唐没边了 想做啥做啥吧 这个世界已经没人能阻止你了。",
+    "file": "唐诗奶龙.gif",
+    "rarity": "common"
+  },
+  {
+    "id": "hehehe-nailong",
+    "name": "嘿嘿嘿奶龙",
+    "description": "发出阴险笑声的计划通奶龙",
+    "analysis": "你今天很适合做一些自己想做的阴险小计划(或许能成功？",
+    "file": "嘿嘿嘿奶龙.gif",
+    "rarity": "common"
+  },
+  {
+    "id": "fat-nailong",
+    "name": "大肚肚奶龙",
+    "description": "吃撑了的大肚子奶龙",
+    "analysis": "你今天的能量和食欲绑定很深。吃饱以后判断力会上线，没吃饱时容易把全世界都看成菜单。",
+    "file": "大肚肚奶龙.jpg",
+    "rarity": "common"
+  },
+  {
+    "id": "delicious-nailong",
+    "name": "好吃奶龙",
+    "description": "吃到好东西的幸福奶龙",
+    "analysis": "你今天容易满足，也容易开心。适合被投喂，也适合偷偷发光。遇到好吃的一定要分享。",
+    "file": "好吃奶龙.gif",
+    "rarity": "common"
+  },
+  {
+    "id": "yogurt-nailong",
+    "name": "安慕希奶龙",
+    "description": "安慕希酸奶代言奶龙",
+    "analysis": "买点安慕希喝吧 确实挺不错的",
+    "file": "安慕希奶龙.gif",
+    "rarity": "rare"
+  },
+  {
+    "id": "awkward-nailong",
+    "name": "尴尬奶龙",
+    "description": "满头大汗不知所措的奶龙",
+    "analysis": "你今天可能遇到让你社死的瞬间。没事，假装什么都没发生就行。第二天就没人记得了。",
+    "file": "尴尬奶龙.gif",
+    "rarity": "common"
+  },
+  {
+    "id": "happy-nailong",
+    "name": "开心奶龙",
+    "description": "喜欢的食物是空气",
+    "analysis": "你今天自带好心情光环，遇到什么事情都可以笑着面对。保持松弛反而更容易拿到好结果。",
+    "file": "开心奶龙.gif",
+    "rarity": "common"
+  },
+  {
+    "id": "phone-nailong",
+    "name": "手机奶龙",
+    "description": "正在玩手机的低头族奶龙",
+    "analysis": "你今天适合慢一点。能躺就先躺，能明天再说就别硬撑。恢复精神也是正经任务。",
+    "file": "手机奶龙.gif",
+    "rarity": "common"
+  },
+  {
+    "id": "scratch-nailong",
+    "name": "挠头奶龙",
+    "description": "挠头困惑的奶龙",
+    "analysis": "你今天可能会被小事戳中。把话说出来会轻松很多，不必假装自己一点都不在意。",
+    "file": "挠头奶龙.gif",
+    "rarity": "common"
+  },
+  {
+    "id": "no-ear-nailong",
+    "name": "无耳奶龙",
+    "description": "耳朵消失了的奇妙奶龙",
+    "analysis": "你的节奏不快，但很稳。偶尔显得有点呆，其实心里都有数，适合按自己的步调来。",
+    "file": "无耳奶龙.gif",
+    "rarity": "common"
+  },
+  {
+    "id": "slump-nailong",
+    "name": "瘫坐奶龙",
+    "description": "瘫坐在地上放弃思考的奶龙",
+    "analysis": "你今天低电量模式全开。别硬撑，能明天再说的事就明天再说。歇着也是正经事。",
+    "file": "瘫坐奶龙.gif",
+    "rarity": "common"
+  },
+  {
+    "id": "transform-nailong",
+    "name": "百变奶龙",
+    "description": "能够变身成各种形态的百变奶龙",
+    "analysis": "你今天适应力超强，什么角色都能演。适合处理各种突发情况，大家都会想找你帮忙。",
+    "file": "百变奶龙.gif",
+    "rarity": "rare"
+  },
+  {
+    "id": "box-nailong",
+    "name": "盒奶龙",
+    "description": "我去盒！",
+    "analysis": "你今天适合开盒别人（开盒是违法行为 小朋友不要模仿哦）或者视奸别人 说不定能找到些奇怪的东西。",
+    "file": "盒奶龙.gif",
+    "rarity": "common"
+  },
+  {
+    "id": "lion-dance-nailong",
+    "name": "舞狮奶龙",
+    "description": "穿着舞狮服装的喜庆奶龙",
+    "analysis": "你今天适合热闹，把气氛带起来就是你的天赋。随便说两句都能让大家开心起来。",
+    "file": "舞狮奶龙.gif",
+    "rarity": "rare"
+  },
+  {
+    "id": "begging-nailong",
+    "name": "要饭奶龙",
+    "description": "拿着碗讨饭的可怜奶龙",
+    "analysis": "你今天运气一般，适合低调苟住。但求个碗也是种智慧，懂的都懂。",
+    "file": "要饭奶龙.gif",
+    "rarity": "common"
+  },
+  {
+    "id": "shocked-nailong",
+    "name": "震惊奶龙",
+    "description": "被震惊到瞳孔地震的奶龙",
+    "analysis": "你今天可能会看到让你难以置信的东西。保持冷静，先确认是真是假再反应。",
+    "file": "震惊奶龙.gif",
+    "rarity": "rare"
+  },
+  {
+    "id": "flying-nailong",
+    "name": "飞翔奶龙",
+    "description": "长出翅膀在天空翱翔的奶龙",
+    "analysis": "你今天的气运要起飞了 中国人能飞 奶龙也能飞 因为奶龙是黄皮肤。",
+    "file": "飞翔奶龙.gif",
+    "rarity": "epic"
+  },
+  {
+    "id": "monkey-king-nailong",
+    "name": "齐天大奶",
+    "description": "花果山水帘洞美猴王齐天大奶龙",
+    "analysis": "你今天就是天选之人，无可阻挡。想做的事放心去做，全世界都会给你让路。",
+    "file": "齐天大奶.gif",
+    "rarity": "legendary"
   }
 ]

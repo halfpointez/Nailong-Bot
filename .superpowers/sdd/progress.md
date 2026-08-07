@@ -6,3 +6,6 @@ Task 5: complete (commits ccf9500..HEAD, review clean)
 Task 6: complete (commits a88dc4e..HEAD, review clean)
 Task 7: complete (type checks pass, tsx runs, @types installed)
 Fix round: 4 issues fixed (inline detection, reconnect stall, reconnect guard, promise handling), review approved
+Task D1: complete (commits ff3efb0..b37b1d2, review clean)
+Task D2: complete (commits b37b1d2..2898554, review clean)
+Task D3: complete (commits 2898554..ad3acb4, review clean)

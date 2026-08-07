@@ -146,7 +146,7 @@ async function replyWithTranslation(
   }
   await client.sendGroupMessage(groupId, [
     { type: "reply", data: { id: String(replyToId) } },
-    { type: "text", data: { text: `翻译结果：${result}` } },
+    { type: "text", data: { text: `奶龙听到你说：${result}` } },
   ]);
 }
 

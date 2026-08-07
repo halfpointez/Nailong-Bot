@@ -1,1049 +1,1522 @@
-﻿09c21e6 fix: add @types/node, @types/ws and fix env initialization
-8f3d75b chore: add bot/ to tsconfig include
-a88dc4e feat: add bot entry point
-ccf9500 feat: add message handler with translation logic
-e2c52dc feat: add OneBot v11 client with WS and HTTP API
-757f9b6 feat: add config module and .env.example
-f09cdf7 chore: add ws, tsx, and bot script
-2bdd221 chore: move superpowers docs to root-level superpowers/ directory
-4f1887f docs: add QQ bot design spec and implementation plan
+﻿8898027 feat: add resource template and update gitignore
+0978876 feat: init database and scheduler on bot startup
+c4ad8f2 feat: integrate commands, easter eggs, and chat counting into handler
+7c1b6ed feat: add command parsing and routing
+b216bdb feat: add nailong-party config keys and easter eggs
+416681b feat: add hourly scheduler and burst detection
+ad3acb4 feat: add nailong gacha core logic
+2898554 feat: add SQLite database module
+b37b1d2 chore: add better-sqlite3 dependency
 ---STAT---
- .env.example                                       |  13 +
- bot/config.ts                                      |  78 +++
- bot/handler.ts                                     | 156 +++++
- bot/index.ts                                       |  17 +
- bot/onebot.ts                                      | 146 +++++
- package-lock.json                                  | 557 ++++++++++++++++
- package.json                                       |   9 +-
- superpowers/docs/plans/2026-08-06-nailong-qqbot.md | 716 +++++++++++++++++++++
- .../docs/specs/2026-08-06-nailong-qqbot-design.md  | 143 ++++
- tsconfig.json                                      |   2 +-
- 10 files changed, 1835 insertions(+), 2 deletions(-)
+ .env.example             |  11 +-
+ .gitignore               |   5 +
+ bot/commands.ts          | 124 +++++++++++++
+ bot/config.ts            |  63 ++++---
+ bot/database.ts          | 142 +++++++++++++++
+ bot/handler.ts           |  94 +++++-----
+ bot/index.ts             |   5 +
+ bot/nailong-party.ts     | 168 +++++++++++++++++
+ bot/scheduler.ts         | 122 +++++++++++++
+ package-lock.json        | 461 +++++++++++++++++++++++++++++++++++++++++++++++
+ package.json             |   2 +
+ resource/images/.gitkeep |   0
+ resource/nailong.json    |  10 +
+ 13 files changed, 1135 insertions(+), 72 deletions(-)
 ---DIFF---
 diff --git a/.env.example b/.env.example
-new file mode 100644
-index 0000000..6186cff
---- /dev/null
+index 96fd065..fd2a157 100644
+--- a/.env.example
 +++ b/.env.example
-@@ -0,0 +1,13 @@
-+# NapCat WebSocket 鍦板潃 (浜嬩欢鎺ユ敹)
-+NAPCT_WS_URL=ws://127.0.0.1:3001
+@@ -1,13 +1,20 @@
+ # NapCat WebSocket 鍦板潃 (浜嬩欢鎺ユ敹)
+ NAPCT_WS_URL=ws://127.0.0.1:3001
+ 
+ # NapCat HTTP API 鍦板潃 (鍙戦€佹秷鎭?
+ NAPCT_HTTP_URL=http://127.0.0.1:3000
+ 
+-# Bot 鑷繁鐨?QQ 鍙?(鐢ㄤ簬鍒ゆ柇鏄惁琚獲)
++# Bot 鑷繁鐨?QQ 鍙? BOT_QQ=
+ 
+ # 鍥炲鏂囨
+ REPLY_DECODE_FAIL=濂堕緳鍚笉鎳傚摝
+ REPLY_NOT_FOUND=鍝? 娌℃湁浜哄湪璇村ザ榫欒!
+-REPLY_TIMEOUT=鍝庡憖, 濂堕緳鍦ㄧ潯瑙夊憿, 绛変笅鍐嶅彨鎴?\ No newline at end of file
++REPLY_TIMEOUT=鍝庡憖, 濂堕緳鍦ㄧ潯瑙夊憿, 绛変笅鍐嶅彨鎴?+
++# 濂堕緳璧勬簮鐩綍锛堥粯璁?project/resource锛?+NAILONG_RESOURCE_DIR=resource
 +
-+# NapCat HTTP API 鍦板潃 (鍙戦€佹秷鎭?
-+NAPCT_HTTP_URL=http://127.0.0.1:3000
++# 褰╄泲閰嶇疆锛堟牸寮忥細鍏抽敭璇嶁啋鍥炲鈫掑竵鏁?鍏抽敭璇嶁啋鍥炲鈫掑竵鏁帮級
++# 涓嶉厤缃垯浣跨敤榛樿褰╄泲
++# EASTER_EGGS=鎴戞槸濂堕緳鈫掓垜鎵嶆槸濂堕緳锛?2濂堕緳甯佲啋2;濂堕緳濂堕緳鈫掑彨鎴戝共鍢涳紒+2濂堕緳甯佲啋2;鎴戝枩娆㈠ザ榫欌啋鎴戜篃鍠滄浣狅紒+2濂堕緳甯佲啋2
+diff --git a/.gitignore b/.gitignore
+index c149a75..8a5d45c 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -19,20 +19,25 @@ pnpm-debug.log*
+ *.njsproj
+ *.sln
+ *.sw?
+ Thumbs.db
+ 
+ # 鐜鍙橀噺
+ .env
+ .env.local
+ .env.*.local
+ 
++# 濂堕緳璧勬簮
++resource/images/*
++!resource/images/.gitkeep
++resource/*.db
 +
-+# Bot 鑷繁鐨?QQ 鍙?(鐢ㄤ簬鍒ゆ柇鏄惁琚獲)
-+BOT_QQ=123456789
-+
-+# 鍥炲鏂囨
-+REPLY_DECODE_FAIL=缈昏瘧澶辫触锛屽ザ榫欒鐨勮娉曟湁璇摝
-+REPLY_NOT_FOUND=娌℃湁妫€娴嬪埌濂堕緳璇紝璇?@鎴?+ 濂堕緳璇?鎴栧紩鐢ㄤ竴鏉″ザ榫欒娑堟伅
-+REPLY_TIMEOUT=Bot 鏆傛椂鏃犳硶鍝嶅簲锛岃绋嶅悗鍐嶈瘯
-diff --git a/bot/config.ts b/bot/config.ts
+ # Agent 宸ヤ綔鏂囦欢
+ .codex
+ .claude
+ .opencode
+ .omo
+ .trellis
+ AGENTS.md
+ .superpowers
+ 
+ #bot 璐﹀彿
+diff --git a/bot/commands.ts b/bot/commands.ts
 new file mode 100644
-index 0000000..1e0a135
+index 0000000..8b272b3
 --- /dev/null
-+++ b/bot/config.ts
-@@ -0,0 +1,78 @@
-+import { readFileSync } from "node:fs";
-+import { resolve } from "node:path";
-+
-+export interface ReplyMessages {
-+  readonly decodeFail: string;
-+  readonly notFound: string;
-+  readonly timeout: string;
-+}
-+
-+export interface Config {
-+  readonly wsUrl: string;
-+  readonly httpUrl: string;
-+  readonly botQQ: string;
-+  readonly replies: ReplyMessages;
-+}
-+
-+function parseEnvFile(path: string): Record<string, string> {
-+  const content = readFileSync(path, "utf-8");
-+  const map: Record<string, string> = {};
-+  for (const line of content.split("\n")) {
-+    const trimmed = line.trim();
-+    if (trimmed === "" || trimmed.startsWith("#")) continue;
-+    const eq = trimmed.indexOf("=");
-+    if (eq === -1) continue;
-+    const key = trimmed.slice(0, eq).trim();
-+    const value = trimmed.slice(eq + 1).trim();
-+    map[key] = value;
-+  }
-+  return map;
-+}
-+
-+export function loadConfig(): Config {
-+  const envPath = resolve(process.cwd(), ".env");
-+  let env: Record<string, string> = {};
-+  try {
-+    env = parseEnvFile(envPath);
-+  } catch {
-+    console.error("鎵句笉鍒?.env 鏂囦欢锛岃浠?.env.example 澶嶅埗骞跺～鍐欓厤缃?);
-+    process.exit(1);
-+  }
-+
-+  const wsUrl = env["NAPCT_WS_URL"] ?? process.env["NAPCT_WS_URL"];
-+  const httpUrl = env["NAPCT_HTTP_URL"] ?? process.env["NAPCT_HTTP_URL"];
-+  const botQQ = env["BOT_QQ"] ?? process.env["BOT_QQ"];
-+
-+  if (!wsUrl) {
-+    console.error("缂哄皯 NAPCT_WS_URL 閰嶇疆");
-+    process.exit(1);
-+  }
-+  if (!httpUrl) {
-+    console.error("缂哄皯 NAPCT_HTTP_URL 閰嶇疆");
-+    process.exit(1);
-+  }
-+  if (!botQQ) {
-+    console.error("缂哄皯 BOT_QQ 閰嶇疆");
-+    process.exit(1);
-+  }
-+
-+  return {
-+    wsUrl,
-+    httpUrl,
-+    botQQ,
-+    replies: {
-+      decodeFail:
-+        env["REPLY_DECODE_FAIL"] ??
-+        process.env["REPLY_DECODE_FAIL"] ??
-+        "缈昏瘧澶辫触锛屽ザ榫欒鐨勮娉曟湁璇摝",
-+      notFound:
-+        env["REPLY_NOT_FOUND"] ??
-+        process.env["REPLY_NOT_FOUND"] ??
-+        "娌℃湁妫€娴嬪埌濂堕緳璇紝璇?@鎴?+ 濂堕緳璇?鎴栧紩鐢ㄤ竴鏉″ザ榫欒娑堟伅",
-+      timeout:
-+        env["REPLY_TIMEOUT"] ??
-+        process.env["REPLY_TIMEOUT"] ??
-+        "Bot 鏆傛椂鏃犳硶鍝嶅簲锛岃绋嶅悗鍐嶈瘯",
-+    },
-+  };
-+}
-diff --git a/bot/handler.ts b/bot/handler.ts
-new file mode 100644
-index 0000000..84ea9c3
---- /dev/null
-+++ b/bot/handler.ts
-@@ -0,0 +1,156 @@
-+import { decodeFromNailong, HA } from "../src/nailong.ts";
++++ b/bot/commands.ts
+@@ -0,0 +1,124 @@
++import {
++  signIn,
++  drawNaiLong,
++  getMyCollections,
++  getFullDex,
++  getRandomNaiLong,
++  getBalance,
++  imageFilePath,
++} from "./nailong-party.ts";
 +import type { Config } from "./config.ts";
-+import type {
-+  OneBotClient,
-+  GroupMessageEvent,
-+  MessageSegment,
-+} from "./onebot.ts";
++import type { OneBotClient, GroupMessageEvent, MessageSegment } from "./onebot.ts";
++import { existsSync } from "node:fs";
 +
-+const ZWC_RE = /[\u200B-\u200D\u2060]/;
-+
-+function isNailong(text: string): boolean {
-+  return text.includes(HA) && ZWC_RE.test(text);
++function stripCQCodes(raw: string): string {
++  return raw.replace(/\[CQ:[^\]]+\]/g, "").trim();
 +}
 +
-+function extractNailong(rawMessage: string): string | null {
-+  if (isNailong(rawMessage)) {
-+    return rawMessage;
-+  }
-+  return null;
-+}
++const COMMAND_ALIASES: Record<string, string[]> = {
++  绛惧埌: ["绛惧埌", "/绛惧埌"],
++  鎶藉ザ榫? ["鎶藉ザ榫?, "/鎶藉ザ榫?, "姣忔棩濂堕緳", "/姣忔棩濂堕緳"],
++  鎴戠殑濂堕緳: ["鎴戠殑濂堕緳", "/鎴戠殑濂堕緳"],
++  濂堕緳鍥鹃壌: ["濂堕緳鍥鹃壌", "/濂堕緳鍥鹃壌"],
++  闅忔満濂堕緳: ["闅忔満濂堕緳", "/闅忔満濂堕緳", "濂堕緳"],
++  濂堕緳甯? ["濂堕緳甯?, "/濂堕緳甯?],
++};
 +
-+function findReplySegment(
-+  message: MessageSegment[]
-+): { id: string } | null {
-+  for (const seg of message) {
-+    if (seg.type === "reply") {
-+      return seg.data as { id: string };
++export function parseCommand(rawMessage: string): string | null {
++  const text = stripCQCodes(rawMessage);
++  for (const [cmd, aliases] of Object.entries(COMMAND_ALIASES)) {
++    for (const alias of aliases) {
++      if (text === alias) return cmd;
 +    }
 +  }
 +  return null;
 +}
 +
-+function isAtBot(
-+  message: MessageSegment[],
-+  botQQ: string
-+): boolean {
-+  for (const seg of message) {
-+    if (seg.type === "at" && seg.data.qq === botQQ) {
++export async function handleCommand(
++  client: OneBotClient,
++  config: Config,
++  event: GroupMessageEvent
++): Promise<boolean> {
++  const cmd = parseCommand(event.raw_message);
++  if (!cmd) return false;
++
++  const userId = String(event.user_id);
++  const groupId = event.group_id;
++  const reply = { type: "reply", data: { id: String(event.message_id) } } as MessageSegment;
++
++  switch (cmd) {
++    case "绛惧埌": {
++      const result = signIn(userId);
++      await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text: result.message } }]);
++      return true;
++    }
++    case "鎶藉ザ榫?: {
++      const result = drawNaiLong(userId);
++      if (!result.success || !result.item) {
++        await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text: result.message } }]);
++        return true;
++      }
++      const imgPath = imageFilePath(result.item, config.nailongResourceDir);
++      const segments: MessageSegment[] = [reply];
++      if (existsSync(imgPath)) {
++        segments.push({ type: "image", data: { file: "file:///" + imgPath.replace(/\\/g, "/") } });
++      }
++      segments.push({ type: "text", data: { text: result.message } });
++      await client.sendGroupMessage(groupId, segments);
++      return true;
++    }
++    case "鎴戠殑濂堕緳": {
++      const col = getMyCollections(userId);
++      const lines = col.items.map(
++        i => `${"猸?.repeat(rarityStars(i.rarity))} ${i.name}`
++      );
++      const text = `浣犵殑濂堕緳鍥鹃壌 (${col.owned}/${col.total})锛歕n${lines.join("\n")}`;
++      await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text } }]);
++      return true;
++    }
++    case "濂堕緳鍥鹃壌": {
++      const dex = getFullDex(userId);
++      const lines = dex.items.map(
++        i => `${"猸?.repeat(rarityStars(i.rarity))} ${i.name} ${i.isOwned ? "鉁? : "鉂?}`
++      );
++      const text = `濂堕緳鍥鹃壌 (${dex.total})锛歕n${lines.join("\n")}`;
++      await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text } }]);
++      return true;
++    }
++    case "闅忔満濂堕緳": {
++      const item = getRandomNaiLong();
++      if (!item) {
++        await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text: "鍥鹃壌杩樻病鏈夊ザ榫欙紒" } }]);
++        return true;
++      }
++      const imgPath = imageFilePath(item, config.nailongResourceDir);
++      const segments: MessageSegment[] = [reply];
++      if (existsSync(imgPath)) {
++        segments.push({ type: "image", data: { file: "file:///" + imgPath.replace(/\\/g, "/") } });
++      }
++      const stars = "猸?.repeat(rarityStars(item.rarity));
++      segments.push({
++        type: "text",
++        data: { text: `鎴戞槸銆?{item.name}銆慭n${item.description}\n杩欐槸浠婂ぉ鐨勯殢鏈哄ザ榫檦\n锛?{stars}锛塦 },
++      });
++      await client.sendGroupMessage(groupId, segments);
++      return true;
++    }
++    case "濂堕緳甯?: {
++      const bal = getBalance(userId);
++      const text = `馃挵 濂堕緳甯侊細${bal.coins} | 宸叉敹闆?${bal.signInDays} 鍙?| 宸叉娊鍗?${bal.totalDraws} 娆;
++      await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text } }]);
 +      return true;
 +    }
 +  }
 +  return false;
 +}
 +
-+export class MessageCache {
-+  private groups = new Map<number, GroupMessageEvent[]>();
-+  private maxSize = 10;
-+
-+  add(event: GroupMessageEvent): void {
-+    const list = this.groups.get(event.group_id) ?? [];
-+    list.push(event);
-+    if (list.length > this.maxSize) {
-+      list.shift();
-+    }
-+    this.groups.set(event.group_id, list);
++function rarityStars(rarity: string): number {
++  switch (rarity) {
++    case "legendary": return 4;
++    case "epic": return 3;
++    case "rare": return 2;
++    default: return 1;
 +  }
++}
+diff --git a/bot/config.ts b/bot/config.ts
+index 1e0a135..d905fe2 100644
+--- a/bot/config.ts
++++ b/bot/config.ts
+@@ -1,24 +1,32 @@
+ import { readFileSync } from "node:fs";
+ import { resolve } from "node:path";
+ 
+ export interface ReplyMessages {
+   readonly decodeFail: string;
+   readonly notFound: string;
+   readonly timeout: string;
+ }
+ 
++export interface EasterEgg {
++  readonly keyword: string;
++  readonly reply: string;
++  readonly coins: number;
++}
 +
-+  getPrevious(groupId: number): GroupMessageEvent | undefined {
-+    const list = this.groups.get(groupId);
-+    if (!list || list.length < 2) return undefined;
-+    return list[list.length - 2];
+ export interface Config {
+   readonly wsUrl: string;
+   readonly httpUrl: string;
+   readonly botQQ: string;
+   readonly replies: ReplyMessages;
++  readonly nailongResourceDir: string;
++  readonly easterEggs: EasterEgg[];
+ }
+ 
+ function parseEnvFile(path: string): Record<string, string> {
+   const content = readFileSync(path, "utf-8");
+   const map: Record<string, string> = {};
+   for (const line of content.split("\n")) {
+     const trimmed = line.trim();
+     if (trimmed === "" || trimmed.startsWith("#")) continue;
+     const eq = trimmed.indexOf("=");
+     if (eq === -1) continue;
+@@ -36,43 +44,50 @@ export function loadConfig(): Config {
+     env = parseEnvFile(envPath);
+   } catch {
+     console.error("鎵句笉鍒?.env 鏂囦欢锛岃浠?.env.example 澶嶅埗骞跺～鍐欓厤缃?);
+     process.exit(1);
+   }
+ 
+   const wsUrl = env["NAPCT_WS_URL"] ?? process.env["NAPCT_WS_URL"];
+   const httpUrl = env["NAPCT_HTTP_URL"] ?? process.env["NAPCT_HTTP_URL"];
+   const botQQ = env["BOT_QQ"] ?? process.env["BOT_QQ"];
+ 
+-  if (!wsUrl) {
+-    console.error("缂哄皯 NAPCT_WS_URL 閰嶇疆");
+-    process.exit(1);
+-  }
+-  if (!httpUrl) {
+-    console.error("缂哄皯 NAPCT_HTTP_URL 閰嶇疆");
+-    process.exit(1);
+-  }
+-  if (!botQQ) {
+-    console.error("缂哄皯 BOT_QQ 閰嶇疆");
+-    process.exit(1);
+-  }
++  if (!wsUrl) { console.error("缂哄皯 NAPCT_WS_URL 閰嶇疆"); process.exit(1); }
++  if (!httpUrl) { console.error("缂哄皯 NAPCT_HTTP_URL 閰嶇疆"); process.exit(1); }
++  if (!botQQ) { console.error("缂哄皯 BOT_QQ 閰嶇疆"); process.exit(1); }
+ 
+   return {
+     wsUrl,
+     httpUrl,
+     botQQ,
+     replies: {
+-      decodeFail:
+-        env["REPLY_DECODE_FAIL"] ??
+-        process.env["REPLY_DECODE_FAIL"] ??
+-        "缈昏瘧澶辫触锛屽ザ榫欒鐨勮娉曟湁璇摝",
+-      notFound:
+-        env["REPLY_NOT_FOUND"] ??
+-        process.env["REPLY_NOT_FOUND"] ??
+-        "娌℃湁妫€娴嬪埌濂堕緳璇紝璇?@鎴?+ 濂堕緳璇?鎴栧紩鐢ㄤ竴鏉″ザ榫欒娑堟伅",
+-      timeout:
+-        env["REPLY_TIMEOUT"] ??
+-        process.env["REPLY_TIMEOUT"] ??
+-        "Bot 鏆傛椂鏃犳硶鍝嶅簲锛岃绋嶅悗鍐嶈瘯",
++      decodeFail: env["REPLY_DECODE_FAIL"] ?? process.env["REPLY_DECODE_FAIL"] ?? "缈昏瘧澶辫触锛屽ザ榫欒鐨勮娉曟湁璇摝",
++      notFound: env["REPLY_NOT_FOUND"] ?? process.env["REPLY_NOT_FOUND"] ?? "娌℃湁妫€娴嬪埌濂堕緳璇紝璇?@鎴?+ 濂堕緳璇?鎴栧紩鐢ㄤ竴鏉″ザ榫欒娑堟伅",
++      timeout: env["REPLY_TIMEOUT"] ?? process.env["REPLY_TIMEOUT"] ?? "Bot 鏆傛椂鏃犳硶鍝嶅簲锛岃绋嶅悗鍐嶈瘯",
+     },
++    nailongResourceDir: env["NAILONG_RESOURCE_DIR"] ?? process.env["NAILONG_RESOURCE_DIR"] ?? resolve(process.cwd(), "resource"),
++    easterEggs: parseEasterEggs(env),
+   };
+ }
++
++function parseEasterEggs(env: Record<string, string>): EasterEgg[] {
++  const raw = env["EASTER_EGGS"] ?? process.env["EASTER_EGGS"];
++  if (!raw) {
++    return [
++      { keyword: "鎴戞槸濂堕緳", reply: "鎴戞墠鏄ザ榫欙紒+2濂堕緳甯?, coins: 2 },
++      { keyword: "濂堕緳濂堕緳", reply: "鍙垜骞插槢锛?2濂堕緳甯?, coins: 2 },
++      { keyword: "鎴戝枩娆㈠ザ榫?, reply: "鎴戜篃鍠滄浣狅紒+2濂堕緳甯?, coins: 2 },
++    ];
++  }
++  const eggs: EasterEgg[] = [];
++  for (const part of raw.split(";")) {
++    const m = part.match(/^(.+?)鈫?.+?)鈫?\d+)$/);
++    if (m) {
++      eggs.push({ keyword: m[1], reply: m[2], coins: parseInt(m[3], 10) });
++    }
++  }
++  return eggs.length > 0 ? eggs : [
++    { keyword: "鎴戞槸濂堕緳", reply: "鎴戞墠鏄ザ榫欙紒+2濂堕緳甯?, coins: 2 },
++    { keyword: "濂堕緳濂堕緳", reply: "鍙垜骞插槢锛?2濂堕緳甯?, coins: 2 },
++    { keyword: "鎴戝枩娆㈠ザ榫?, reply: "鎴戜篃鍠滄浣狅紒+2濂堕緳甯?, coins: 2 },
++  ];
++}
+diff --git a/bot/database.ts b/bot/database.ts
+new file mode 100644
+index 0000000..f318b0c
+--- /dev/null
++++ b/bot/database.ts
+@@ -0,0 +1,142 @@
++import Database from "better-sqlite3";
++import { readFileSync } from "node:fs";
++import { resolve } from "node:path";
++
++export interface NaiLongItem {
++  id: string;
++  name: string;
++  description: string;
++  analysis: string;
++  file: string;
++  rarity: "common" | "rare" | "epic" | "legendary";
++}
++
++export interface UserRecord {
++  user_id: string;
++  coins: number;
++  sign_in_date: string | null;
++  total_draws: number;
++}
++
++export interface CollectionRecord {
++  user_id: string;
++  nailong_id: string;
++  obtained_at: string;
++}
++
++let db: Database.Database | null = null;
++
++export function getDb(): Database.Database {
++  if (!db) throw new Error("鏁版嵁搴撴湭鍒濆鍖栵紝璇峰厛璋冪敤 initDb()");
++  return db;
++}
++
++export function initDb(resourceDir: string): void {
++  const dbPath = resolve(resourceDir, "nailong.db");
++  db = new Database(dbPath);
++  db.pragma("journal_mode = WAL");
++  db.pragma("foreign_keys = ON");
++
++  db.exec(`
++    CREATE TABLE IF NOT EXISTS nailongs (
++      id          TEXT PRIMARY KEY,
++      name        TEXT NOT NULL,
++      description TEXT,
++      analysis    TEXT,
++      file        TEXT NOT NULL,
++      rarity      TEXT NOT NULL CHECK(rarity IN ('common','rare','epic','legendary'))
++    );
++    CREATE TABLE IF NOT EXISTS users (
++      user_id       TEXT PRIMARY KEY,
++      coins         INTEGER DEFAULT 0,
++      sign_in_date  TEXT,
++      total_draws   INTEGER DEFAULT 0
++    );
++    CREATE TABLE IF NOT EXISTS collections (
++      user_id     TEXT NOT NULL,
++      nailong_id  TEXT NOT NULL,
++      obtained_at TEXT NOT NULL,
++      PRIMARY KEY (user_id, nailong_id),
++      FOREIGN KEY (nailong_id) REFERENCES nailongs(id)
++    );
++    CREATE TABLE IF NOT EXISTS easter_eggs (
++      user_id  TEXT NOT NULL,
++      egg_name TEXT NOT NULL,
++      date     TEXT NOT NULL,
++      PRIMARY KEY (user_id, egg_name)
++    );
++  `);
++
++  const count = db.prepare("SELECT COUNT(*) as c FROM nailongs").get() as { c: number };
++  if (count.c === 0) {
++    const jsonPath = resolve(resourceDir, "nailong.json");
++    const data = JSON.parse(readFileSync(jsonPath, "utf-8")) as NaiLongItem[];
++    const insert = db.prepare(
++      "INSERT OR IGNORE INTO nailongs (id, name, description, analysis, file, rarity) VALUES (?, ?, ?, ?, ?, ?)"
++    );
++    const insertMany = db.transaction((items: NaiLongItem[]) => {
++      for (const item of items) {
++        insert.run(item.id, item.name, item.description, item.analysis, item.file, item.rarity);
++      }
++    });
++    insertMany(data);
 +  }
 +}
 +
-+export function createHandler(
-+  client: OneBotClient,
-+  config: Config
-+): (event: GroupMessageEvent) => Promise<void> {
-+  const cache = new MessageCache();
++export function getUser(userId: string): UserRecord {
++  const row = getDb().prepare("SELECT * FROM users WHERE user_id = ?").get(userId) as UserRecord | undefined;
++  return row ?? { user_id: userId, coins: 0, sign_in_date: null, total_draws: 0 };
++}
 +
-+  return async (event: GroupMessageEvent) => {
-+    cache.add(event);
++export function upsertUser(userId: string, updates: Partial<UserRecord>): void {
++  const existing = getDb().prepare("SELECT user_id FROM users WHERE user_id = ?").get(userId);
++  if (existing) {
++    const sets: string[] = [];
++    const params: (string | number | null)[] = [];
++    if (updates.coins !== undefined) { sets.push("coins = ?"); params.push(updates.coins); }
++    if (updates.sign_in_date !== undefined) { sets.push("sign_in_date = ?"); params.push(updates.sign_in_date); }
++    if (updates.total_draws !== undefined) { sets.push("total_draws = ?"); params.push(updates.total_draws); }
++    if (sets.length > 0) {
++      params.push(userId);
++      getDb().prepare(`UPDATE users SET ${sets.join(", ")} WHERE user_id = ?`).run(...params);
++    }
++  } else {
++    getDb().prepare(
++      "INSERT INTO users (user_id, coins, sign_in_date, total_draws) VALUES (?, ?, ?, ?)"
++    ).run(userId, updates.coins ?? 0, updates.sign_in_date ?? null, updates.total_draws ?? 0);
++  }
++}
 +
-+    if (!isAtBot(event.message, config.botQQ)) return;
++export function getCollections(userId: string): CollectionRecord[] {
++  return getDb().prepare(
++    "SELECT * FROM collections WHERE user_id = ? ORDER BY obtained_at"
++  ).all(userId) as CollectionRecord[];
++}
 +
-+    const nailong = extractNailong(event.raw_message);
-+    if (nailong) {
-+      await replyWithTranslation(
-+        client,
-+        event.group_id,
-+        event.message_id,
-+        nailong,
-+        config.replies.decodeFail
-+      );
++export function addCollection(userId: string, nailongId: string): void {
++  const today = new Date().toISOString().slice(0, 10);
++  getDb().prepare(
++    "INSERT OR IGNORE INTO collections (user_id, nailong_id, obtained_at) VALUES (?, ?, ?)"
++  ).run(userId, nailongId, today);
++}
++
++export function getAllNaiLongs(): NaiLongItem[] {
++  return getDb().prepare("SELECT * FROM nailongs").all() as NaiLongItem[];
++}
++
++export function getNaiLongById(id: string): NaiLongItem | undefined {
++  return getDb().prepare("SELECT * FROM nailongs WHERE id = ?").get(id) as NaiLongItem | undefined;
++}
++
++export function isEasterEggCoolingDown(userId: string, eggName: string, date: string): boolean {
++  const row = getDb().prepare(
++    "SELECT 1 FROM easter_eggs WHERE user_id = ? AND egg_name = ? AND date = ?"
++  ).get(userId, eggName, date);
++  return row !== undefined;
++}
++
++export function triggerEasterEgg(userId: string, eggName: string, date: string): void {
++  getDb().prepare(
++    "INSERT OR IGNORE INTO easter_eggs (user_id, egg_name, date) VALUES (?, ?, ?)"
++  ).run(userId, eggName, date);
++}
+diff --git a/bot/handler.ts b/bot/handler.ts
+index 998b8a8..9016dc0 100644
+--- a/bot/handler.ts
++++ b/bot/handler.ts
+@@ -1,141 +1,143 @@
+ import { decodeFromNailong, HA } from "../src/nailong.ts";
+ import type { Config } from "./config.ts";
+-import type {
+-  OneBotClient,
+-  GroupMessageEvent,
+-  MessageSegment,
+-} from "./onebot.ts";
++import type { OneBotClient, GroupMessageEvent, MessageSegment } from "./onebot.ts";
++import { handleCommand } from "./commands.ts";
++import { recordMessage, checkBurst } from "./scheduler.ts";
++import { addCoins } from "./nailong-party.ts";
++import { isEasterEggCoolingDown, triggerEasterEgg } from "./database.ts";
+ 
+ const ZWC_RE = /[\u200B-\u200D\u2060]/;
+ 
+ function stripCQCodes(rawMessage: string): string {
+   return rawMessage.replace(/\[CQ:[^\]]+\]/g, "").trim();
+ }
+ 
+ function isNailong(text: string): boolean {
+   return text.includes(HA) && ZWC_RE.test(text);
+ }
+ 
+ function extractNailong(rawMessage: string): string | null {
+-  if (isNailong(rawMessage)) {
+-    return rawMessage;
+-  }
++  if (isNailong(rawMessage)) return rawMessage;
+   return null;
+ }
+ 
+-function findReplySegment(
+-  message: MessageSegment[]
+-): { id: string } | null {
++function findReplySegment(message: MessageSegment[]): { id: string } | null {
+   for (const seg of message) {
+-    if (seg.type === "reply") {
+-      return seg.data as { id: string };
+-    }
++    if (seg.type === "reply") return seg.data as { id: string };
+   }
+   return null;
+ }
+ 
+-function isAtBot(
+-  message: MessageSegment[],
+-  botQQ: string
+-): boolean {
++function isAtBot(message: MessageSegment[], botQQ: string): boolean {
+   for (const seg of message) {
+-    if (seg.type === "at" && seg.data.qq === botQQ) {
+-      return true;
+-    }
++    if (seg.type === "at" && seg.data.qq === botQQ) return true;
+   }
+   return false;
+ }
+ 
+ export class MessageCache {
+   private groups = new Map<number, GroupMessageEvent[]>();
+   private maxSize = 10;
+ 
+   add(event: GroupMessageEvent): void {
+     const list = this.groups.get(event.group_id) ?? [];
+     list.push(event);
+-    if (list.length > this.maxSize) {
+-      list.shift();
+-    }
++    if (list.length > this.maxSize) list.shift();
+     this.groups.set(event.group_id, list);
+   }
+ 
+   getPrevious(groupId: number): GroupMessageEvent | undefined {
+     const list = this.groups.get(groupId);
+     if (!list || list.length < 2) return undefined;
+     return list[list.length - 2];
+   }
+ }
+ 
+ export function createHandler(
+   client: OneBotClient,
+   config: Config
+ ): (event: GroupMessageEvent) => Promise<void> {
+   const cache = new MessageCache();
+ 
+   return async (event: GroupMessageEvent) => {
+     cache.add(event);
+ 
+-    if (!isAtBot(event.message, config.botQQ)) return;
++    const uid = String(event.user_id);
++    recordMessage(event.group_id, uid);
++    await checkBurst(client, event.group_id);
++
++    if (!isAtBot(event.message, config.botQQ)) {
++      await checkEasterEggs(client, config, event);
 +      return;
 +    }
 +
-+    const replySeg = findReplySegment(event.message);
-+    if (replySeg) {
-+      try {
-+        const replied = await client.getMessage(Number(replySeg.id));
-+        const rn = extractNailong(replied.raw_message);
-+        if (rn) {
-+          await replyWithTranslation(
-+            client,
-+            event.group_id,
-+            Number(replySeg.id),
-+            rn,
-+            config.replies.decodeFail
-+          );
-+          return;
-+        }
-+      } catch {
-+        await replyText(client, event, config.replies.timeout);
-+        return;
-+      }
-+    }
-+
-+    const prev = cache.getPrevious(event.group_id);
-+    if (prev) {
-+      const pn = extractNailong(prev.raw_message);
-+      if (pn) {
-+        await replyWithTranslation(
-+          client,
-+          event.group_id,
-+          prev.message_id,
-+          pn,
-+          config.replies.decodeFail
-+        );
-+        return;
-+      }
-+    }
-+
-+    await replyText(client, event, config.replies.notFound);
-+  };
-+}
-+
-+async function replyWithTranslation(
++    const cmdHandled = await handleCommand(client, config, event);
++    if (cmdHandled) return;
+ 
+     const nailong = extractNailong(stripCQCodes(event.raw_message));
+     if (nailong) {
+-      await replyWithTranslation(
+-        client,
+-        event.group_id,
+-        event.message_id,
+-        nailong,
+-        config.replies.decodeFail
+-      );
++      await replyWithTranslation(client, event.group_id, event.message_id, nailong, config.replies.decodeFail);
+       return;
+     }
+ 
+     const replySeg = findReplySegment(event.message);
+     if (replySeg) {
+       try {
+         const replied = await client.getMessage(Number(replySeg.id));
+         const rn = extractNailong(stripCQCodes(replied.raw_message));
+         if (rn) {
+-          await replyWithTranslation(
+-            client,
+-            event.group_id,
+-            Number(replySeg.id),
+-            rn,
+-            config.replies.decodeFail
+-          );
++          await replyWithTranslation(client, event.group_id, Number(replySeg.id), rn, config.replies.decodeFail);
+           return;
+         }
+       } catch {
+         await replyText(client, event, config.replies.timeout);
+         return;
+       }
+     }
+ 
+     const prev = cache.getPrevious(event.group_id);
+     if (prev) {
+       const pn = extractNailong(stripCQCodes(prev.raw_message));
+       if (pn) {
+-        await replyWithTranslation(
+-          client,
+-          event.group_id,
+-          prev.message_id,
+-          pn,
+-          config.replies.decodeFail
+-        );
++        await replyWithTranslation(client, event.group_id, prev.message_id, pn, config.replies.decodeFail);
+         return;
+       }
+     }
+ 
+     await replyText(client, event, config.replies.notFound);
+   };
+ }
+ 
++async function checkEasterEggs(
 +  client: OneBotClient,
-+  groupId: number,
-+  replyToId: number,
-+  nailongRaw: string,
-+  decodeFailText: string
++  config: Config,
++  event: GroupMessageEvent
 +): Promise<void> {
-+  let result: string;
-+  try {
-+    result = decodeFromNailong(nailongRaw);
-+  } catch {
-+    result = decodeFailText;
++  const raw = event.raw_message;
++  const date = new Date().toISOString().slice(0, 10);
++  const userId = String(event.user_id);
++
++  for (const egg of config.easterEggs) {
++    if (!raw.includes(egg.keyword)) continue;
++    if (isEasterEggCoolingDown(userId, egg.keyword, date)) continue;
++
++    triggerEasterEgg(userId, egg.keyword, date);
++    addCoins(userId, egg.coins);
++    await client.sendGroupMessage(event.group_id, [
++      { type: "reply", data: { id: String(event.message_id) } },
++      { type: "text", data: { text: egg.reply } },
++    ]);
++    return;
 +  }
-+  await client.sendGroupMessage(groupId, [
-+    { type: "reply", data: { id: String(replyToId) } },
-+    { type: "text", data: { text: `缈昏瘧缁撴灉锛?{result}` } },
-+  ]);
 +}
 +
-+async function replyText(
-+  client: OneBotClient,
-+  event: GroupMessageEvent,
-+  text: string
-+): Promise<void> {
-+  await client.sendGroupMessage(event.group_id, [
-+    { type: "reply", data: { id: String(event.message_id) } },
-+    { type: "text", data: { text } },
-+  ]);
-+}
+ async function replyWithTranslation(
+   client: OneBotClient,
+   groupId: number,
+   replyToId: number,
+   nailongRaw: string,
+   decodeFailText: string
+ ): Promise<void> {
+   let result: string;
+   try {
+     result = decodeFromNailong(nailongRaw);
 diff --git a/bot/index.ts b/bot/index.ts
-new file mode 100644
-index 0000000..b877e70
---- /dev/null
+index b877e70..73c22f8 100644
+--- a/bot/index.ts
 +++ b/bot/index.ts
-@@ -0,0 +1,17 @@
-+import { loadConfig } from "./config.ts";
-+import { OneBotClient } from "./onebot.ts";
-+import { createHandler } from "./handler.ts";
+@@ -1,17 +1,22 @@
+ import { loadConfig } from "./config.ts";
+ import { OneBotClient } from "./onebot.ts";
+ import { createHandler } from "./handler.ts";
++import { initDb } from "./database.ts";
++import { startScheduler } from "./scheduler.ts";
+ 
+ const config = loadConfig();
++initDb(config.nailongResourceDir);
 +
-+const config = loadConfig();
-+const client = new OneBotClient(config);
-+client.onGroupMessage(createHandler(client, config));
-+
-+client
-+  .connect()
-+  .then(() => {
-+    console.log(`[bot] NLtranslator Bot 宸插惎鍔?(QQ: ${config.botQQ})`);
-+  })
-+  .catch((err) => {
-+    console.error("[bot] 鍚姩澶辫触:", err.message);
-+    process.exit(1);
-+  });
-diff --git a/bot/onebot.ts b/bot/onebot.ts
+ const client = new OneBotClient(config);
+ client.onGroupMessage(createHandler(client, config));
+ 
+ client
+   .connect()
+   .then(() => {
+     console.log(`[bot] NLtranslator Bot 宸插惎鍔?(QQ: ${config.botQQ})`);
++    startScheduler(client);
+   })
+   .catch((err) => {
+     console.error("[bot] 鍚姩澶辫触:", err.message);
+     process.exit(1);
+   });
+diff --git a/bot/nailong-party.ts b/bot/nailong-party.ts
 new file mode 100644
-index 0000000..ed1cd0d
+index 0000000..1912643
 --- /dev/null
-+++ b/bot/onebot.ts
-@@ -0,0 +1,146 @@
-+import WebSocket from "ws";
-+import type { Config } from "./config.ts";
++++ b/bot/nailong-party.ts
+@@ -0,0 +1,168 @@
++import {
++  getUser,
++  upsertUser,
++  getCollections,
++  addCollection,
++  getAllNaiLongs,
++} from "./database.ts";
++import type { NaiLongItem } from "./database.ts";
 +
-+export interface MessageSegment {
-+  type: string;
-+  data: Record<string, string>;
-+}
-+
-+export interface OneBotEvent {
-+  post_type: string;
-+  message_type?: string;
-+  sub_type?: string;
-+  message_id: number;
-+  group_id?: number;
-+  user_id?: number;
-+  message: MessageSegment[];
-+  raw_message: string;
-+}
-+
-+export type GroupMessageEvent = OneBotEvent & {
-+  post_type: "message";
-+  message_type: "group";
-+  group_id: number;
++export const RARITY_WEIGHTS: Record<string, number> = {
++  common: 60,
++  rare: 25,
++  epic: 12,
++  legendary: 3,
 +};
 +
-+export interface GetMsgResponse {
-+  status: string;
-+  retcode: number;
-+  data: {
-+    message_id: number;
-+    message: MessageSegment[];
-+    raw_message: string;
++function today(): string {
++  return new Date().toISOString().slice(0, 10);
++}
++
++export function signIn(userId: string): {
++  success: boolean;
++  message: string;
++  addedCoins: number;
++  balance: number;
++} {
++  const td = today();
++  const user = getUser(userId);
++  if (user.sign_in_date === td) {
++    return {
++      success: false,
++      message: "浣犱粖澶╁凡缁忕鍒拌繃浜唦",
++      addedCoins: 0,
++      balance: user.coins,
++    };
++  }
++  const newCoins = user.coins + 10;
++  upsertUser(userId, { coins: newCoins, sign_in_date: td });
++  return {
++    success: true,
++    message: `鉁?绛惧埌鎴愬姛锛?10濂堕緳甯?| 浣欓锛?{newCoins}甯乣,
++    addedCoins: 10,
++    balance: newCoins,
 +  };
 +}
 +
-+export class OneBotClient {
-+  private ws: WebSocket | null = null;
-+  private handlers: ((e: GroupMessageEvent) => void)[] = [];
-+  private reconnectCount = 0;
-+  private maxReconnect = 10;
-+  private reconnectDelay = 5000;
-+  private readonly wsUrl: string;
-+  private readonly httpUrl: string;
-+
-+  constructor(config: Config) {
-+    this.wsUrl = config.wsUrl;
-+    this.httpUrl = config.httpUrl;
++export function drawNaiLong(userId: string): {
++  success: boolean;
++  item?: NaiLongItem;
++  message: string;
++  cost: number;
++  balance: number;
++  isNew: boolean;
++} {
++  const user = getUser(userId);
++  if (user.coins < 10) {
++    return { success: false, message: "濂堕緳甯佷笉瓒筹紒闇€瑕?10甯侊紝褰撳墠锛? + user.coins + "甯?, cost: 0, balance: user.coins, isNew: false };
 +  }
 +
-+  connect(): Promise<void> {
-+    return new Promise((resolve, reject) => {
-+      this.ws = new WebSocket(this.wsUrl);
-+      this.ws.on("open", () => {
-+        console.log("[onebot] 宸茶繛鎺?NapCat:", this.wsUrl);
-+        this.reconnectCount = 0;
-+        resolve();
-+      });
-+      this.ws.on("message", (data) => this.handleMessage(data));
-+      this.ws.on("close", () => {
-+        console.log("[onebot] 杩炴帴鏂紑");
-+        this.tryReconnect();
-+      });
-+      this.ws.on("error", (err) => {
-+        if (this.ws?.readyState !== WebSocket.OPEN) {
-+          reject(err);
-+        } else {
-+          console.error("[onebot] WebSocket 閿欒:", err.message);
-+        }
-+      });
-+    });
++  const all = getAllNaiLongs();
++  if (all.length === 0) {
++    return { success: false, message: "鍥鹃壌杩樻病鏈夊ザ榫欙紝璇疯仈绯荤鐞嗗憳娣诲姞锛?, cost: 0, balance: user.coins, isNew: false };
 +  }
 +
-+  onGroupMessage(fn: (e: GroupMessageEvent) => void): void {
-+    this.handlers.push(fn);
++  const owned = getCollections(userId);
++  const ownedIds = new Set(owned.map(r => r.nailong_id));
++  const candidates = all.filter(item => !ownedIds.has(item.id));
++
++  if (candidates.length === 0) {
++    return {
++      success: false,
++      message: `浣犲凡缁忔姄鍒板叏閮ㄧ殑濂堕緳浜嗭紒锛?{all.length}/${all.length}锛塦,
++      cost: 0,
++      balance: user.coins,
++      isNew: false,
++    };
 +  }
 +
-+  async sendGroupMessage(
-+    groupId: number,
-+    message: MessageSegment[]
-+  ): Promise<void> {
-+    const url = `${this.httpUrl}/send_group_msg`;
-+    const res = await fetch(url, {
-+      method: "POST",
-+      headers: { "Content-Type": "application/json" },
-+      body: JSON.stringify({ group_id: groupId, message, auto_escape: false }),
-+    });
-+    if (!res.ok) {
-+      throw new Error(`send_group_msg 澶辫触: HTTP ${res.status}`);
-+    }
-+    const body = (await res.json()) as { status: string; retcode: number };
-+    if (body.status !== "ok" || body.retcode !== 0) {
-+      throw new Error(`send_group_msg 澶辫触: ${JSON.stringify(body)}`);
-+    }
++  const item = weightedRandom(candidates);
++  const isNew = !ownedIds.has(item.id);
++  if (isNew) {
++    addCollection(userId, item.id);
 +  }
 +
-+  async getMessage(messageId: number): Promise<GetMsgResponse["data"]> {
-+    const url = `${this.httpUrl}/get_msg`;
-+    const res = await fetch(url, {
-+      method: "POST",
-+      headers: { "Content-Type": "application/json" },
-+      body: JSON.stringify({ message_id: messageId }),
-+    });
-+    if (!res.ok) {
-+      throw new Error(`get_msg 澶辫触: HTTP ${res.status}`);
-+    }
-+    const body = (await res.json()) as GetMsgResponse;
-+    if (body.status !== "ok" || body.retcode !== 0) {
-+      throw new Error(`get_msg 澶辫触: ${JSON.stringify(body)}`);
-+    }
-+    return body.data;
-+  }
++  const newCoins = user.coins - 10;
++  const newDraws = user.total_draws + 1;
++  upsertUser(userId, { coins: newCoins, total_draws: newDraws });
 +
-+  private handleMessage(data: WebSocket.RawData): void {
-+    try {
-+      const event = JSON.parse(data.toString()) as OneBotEvent;
-+      if (
-+        event.post_type === "message" &&
-+        event.message_type === "group" &&
-+        event.sub_type === "normal"
-+      ) {
-+        const ge = event as GroupMessageEvent;
-+        for (const fn of this.handlers) {
-+          fn(ge);
-+        }
-+      }
-+    } catch {
-+      // ignore parse failures
-+    }
-+  }
++  const stars = "猸?.repeat(rarityStars(item.rarity));
++  const dupeLabel = isNew ? "" : "锛堝凡鎷ユ湁锛?;
++  const msg = `鎴戞槸銆?{item.name}銆?{dupeLabel}\n${item.description}\n${item.analysis}\n锛?{stars} 娑堣€?10 甯?| 浣欓 ${newCoins} 甯侊級`;
 +
-+  private tryReconnect(): void {
-+    if (this.reconnectCount >= this.maxReconnect) {
-+      console.error("[onebot] 閲嶈繛娆℃暟宸茶揪涓婇檺锛岄€€鍑?);
-+      process.exit(1);
-+    }
-+    this.reconnectCount++;
-+    console.log(
-+      `[onebot] ${this.reconnectDelay / 1000}s 鍚庤繘琛岀 ${this.reconnectCount} 娆￠噸杩?..`
-+    );
-+    setTimeout(() => {
-+      this.connect().catch(() => {
-+        // reconnect failure will trigger close event again
-+      });
-+    }, this.reconnectDelay);
++  return { success: true, item, message: msg, cost: 10, balance: newCoins, isNew };
++}
++
++export function getMyCollections(userId: string): {
++  items: { name: string; rarity: string }[];
++  owned: number;
++  total: number;
++} {
++  const all = getAllNaiLongs();
++  const owned = getCollections(userId);
++  const ownedIds = new Set(owned.map(r => r.nailong_id));
++  const items = all
++    .filter(item => ownedIds.has(item.id))
++    .map(item => ({ name: item.name, rarity: item.rarity }));
++  return { items, owned: items.length, total: all.length };
++}
++
++export function getFullDex(userId: string): {
++  items: { name: string; rarity: string; isOwned: boolean }[];
++  total: number;
++} {
++  const all = getAllNaiLongs();
++  const owned = getCollections(userId);
++  const ownedIds = new Set(owned.map(r => r.nailong_id));
++  const items = all.map(item => ({
++    name: item.name,
++    rarity: item.rarity,
++    isOwned: ownedIds.has(item.id),
++  }));
++  return { items, total: all.length };
++}
++
++export function getRandomNaiLong(): NaiLongItem | undefined {
++  const all = getAllNaiLongs();
++  if (all.length === 0) return undefined;
++  return all[Math.floor(Math.random() * all.length)];
++}
++
++export function getBalance(userId: string): {
++  coins: number;
++  signInDays: number;
++  totalDraws: number;
++} {
++  const user = getUser(userId);
++  const ownedCount = getCollections(userId).length;
++  return { coins: user.coins, signInDays: ownedCount, totalDraws: user.total_draws };
++}
++
++export function addCoins(userId: string, amount: number): number {
++  const user = getUser(userId);
++  const newCoins = user.coins + amount;
++  upsertUser(userId, { coins: newCoins });
++  return newCoins;
++}
++
++function rarityStars(rarity: string): number {
++  switch (rarity) {
++    case "legendary": return 4;
++    case "epic": return 3;
++    case "rare": return 2;
++    default: return 1;
 +  }
 +}
++
++function weightedRandom(items: NaiLongItem[]): NaiLongItem {
++  const weighted: NaiLongItem[] = [];
++  for (const item of items) {
++    const w = RARITY_WEIGHTS[item.rarity] ?? 60;
++    for (let i = 0; i < w; i++) weighted.push(item);
++  }
++  return weighted[Math.floor(Math.random() * weighted.length)];
++}
++
++export function imageFilePath(item: NaiLongItem, resourceDir: string): string {
++  return resourceDir + "/images/" + item.file;
++}
+diff --git a/bot/scheduler.ts b/bot/scheduler.ts
+new file mode 100644
+index 0000000..de16b1e
+--- /dev/null
++++ b/bot/scheduler.ts
+@@ -0,0 +1,122 @@
++import { addCoins } from "./nailong-party.ts";
++import type { OneBotClient, MessageSegment } from "./onebot.ts";
++
++interface HourlyChatStats {
++  counts: Map<string, number>;
++  timestamp: number;
++}
++
++interface BurstState {
++  count: number;
++  speakers: Set<string>;
++  startTime: number;
++  cooldownUntil: number;
++}
++
++const hourlyStats = new Map<number, HourlyChatStats>();
++const burstStates = new Map<number, BurstState>();
++
++const BURST_WINDOW_MS = 10 * 60 * 1000;
++const BURST_THRESHOLD = 50;
++const BURST_COOLDOWN_MS = 30 * 60 * 1000;
++
++export function recordMessage(groupId: number, userId: string): void {
++  const now = Date.now();
++
++  let stats = hourlyStats.get(groupId);
++  if (!stats) {
++    stats = { counts: new Map(), timestamp: now };
++    hourlyStats.set(groupId, stats);
++  }
++  stats.counts.set(userId, (stats.counts.get(userId) ?? 0) + 1);
++
++  let burst = burstStates.get(groupId);
++  if (!burst) {
++    burst = { count: 0, speakers: new Set(), startTime: now, cooldownUntil: 0 };
++    burstStates.set(groupId, burst);
++  }
++
++  if (now - burst.startTime > BURST_WINDOW_MS) {
++    burst.count = 0;
++    burst.speakers = new Set();
++    burst.startTime = now;
++  }
++
++  burst.count++;
++  burst.speakers.add(userId);
++}
++
++export async function checkBurst(
++  client: OneBotClient,
++  groupId: number
++): Promise<void> {
++  const burst = burstStates.get(groupId);
++  if (!burst) return;
++
++  const now = Date.now();
++  if (now < burst.cooldownUntil) return;
++  if (burst.count < BURST_THRESHOLD) return;
++  if (now - burst.startTime > BURST_WINDOW_MS) return;
++
++  burst.cooldownUntil = now + BURST_COOLDOWN_MS;
++
++  const segments: MessageSegment[] = [
++    { type: "text", data: { text: "浣犱滑閮芥槸濂堕緳锛?1濂堕緳甯? } },
++  ];
++  for (const uid of burst.speakers) {
++    addCoins(uid, 1);
++    segments.push({ type: "at", data: { qq: uid } });
++  }
++
++  try {
++    await client.sendGroupMessage(groupId, segments);
++  } catch (e) {
++    console.error("[scheduler] 鐖嗗彂娑堟伅鍙戦€佸け璐?", e);
++  }
++
++  burst.count = 0;
++  burst.speakers = new Set();
++  burst.startTime = now;
++}
++
++async function settleHourly(client: OneBotClient): Promise<void> {
++  for (const [groupId, stats] of hourlyStats) {
++    const speakers = Array.from(stats.counts.entries()).sort((a, b) => b[1] - a[1]);
++    hourlyStats.delete(groupId);
++
++    if (speakers.length === 0) {
++      try {
++        await client.sendGroupMessage(groupId, [
++          { type: "text", data: { text: "鍝硷紒閮戒笉璇磋瘽 濂堕緳濂芥棤鑱? } },
++        ]);
++      } catch (e) {
++        console.error("[scheduler] 绌洪棽娑堟伅鍙戦€佸け璐?", e);
++      }
++      continue;
++    }
++
++    const [topUserId] = speakers[0];
++    addCoins(topUserId, 1);
++    try {
++      await client.sendGroupMessage(groupId, [
++        { type: "text", data: { text: "鍢垮樋锛屼綘鏄ザ榫欙紒" } },
++        { type: "at", data: { qq: topUserId } },
++        { type: "text", data: { text: " +1濂堕緳甯? } },
++      ]);
++    } catch (e) {
++      console.error("[scheduler] 缁撶畻娑堟伅鍙戦€佸け璐?", e);
++    }
++  }
++}
++
++export function startScheduler(client: OneBotClient): void {
++  const now = new Date();
++  const msToNextHour = (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000 - now.getMilliseconds();
++
++  setTimeout(() => {
++    settleHourly(client);
++    setInterval(() => settleHourly(client), 60 * 60 * 1000);
++  }, msToNextHour);
++
++  console.log("[scheduler] 姣忓皬鏃剁粨绠楀櫒宸插惎鍔紝涓嬫缁撶畻:", new Date(Date.now() + msToNextHour).toLocaleTimeString());
++}
 diff --git a/package-lock.json b/package-lock.json
-index 91d174a..e7ede96 100644
+index 13ee79a..640ed30 100644
 --- a/package-lock.json
 +++ b/package-lock.json
-@@ -1,20 +1,26 @@
+@@ -1,64 +1,501 @@
  {
-   "name": "nl-tranlates",
+   "name": "nailong-bot",
    "version": "0.0.0",
    "lockfileVersion": 3,
    "requires": true,
    "packages": {
      "": {
-       "name": "nl-tranlates",
+       "name": "nailong-bot",
        "version": "0.0.0",
-+      "dependencies": {
-+        "ws": "^8.18.0"
-+      },
+       "dependencies": {
++        "better-sqlite3": "^11.7.0",
+         "ws": "^8.18.0"
+       },
        "devDependencies": {
-+        "@types/node": "^26.1.2",
-+        "@types/ws": "^8.18.1",
-+        "tsx": "^4.19.0",
-         "typescript": "~5.6.2",
-         "vite": "^6.0.7"
++        "@types/better-sqlite3": "^7.6.12",
+         "@types/node": "^26.1.2",
+         "@types/ws": "^8.18.1",
+         "tsx": "^4.19.0",
+         "typescript": "~5.6.2"
        }
      },
-     "node_modules/@esbuild/aix-ppc64": {
-       "version": "0.25.12",
-       "resolved": "https://registry.npmjs.org/@esbuild/aix-ppc64/-/aix-ppc64-0.25.12.tgz",
-       "integrity": "sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==",
-       "cpu": [
-         "ppc64"
-@@ -821,20 +827,40 @@
-         "win32"
-       ]
-     },
-     "node_modules/@types/estree": {
-       "version": "1.0.9",
-       "resolved": "https://registry.npmjs.org/@types/estree/-/estree-1.0.9.tgz",
-       "integrity": "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==",
-       "dev": true,
-       "license": "MIT"
-     },
-+    "node_modules/@types/node": {
-+      "version": "26.1.2",
-+      "resolved": "https://registry.npmjs.org/@types/node/-/node-26.1.2.tgz",
-+      "integrity": "sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg==",
-+      "dev": true,
-+      "license": "MIT",
-+      "dependencies": {
-+        "undici-types": "~8.3.0"
-+      }
-+    },
-+    "node_modules/@types/ws": {
-+      "version": "8.18.1",
-+      "resolved": "https://registry.npmjs.org/@types/ws/-/ws-8.18.1.tgz",
-+      "integrity": "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==",
++    "node_modules/@types/better-sqlite3": {
++      "version": "7.6.13",
++      "resolved": "https://registry.npmjs.org/@types/better-sqlite3/-/better-sqlite3-7.6.13.tgz",
++      "integrity": "sha512-NMv9ASNARoKksWtsq/SHakpYAYnhBrQgGD8zkLYk/jaK8jUGn08CfEdTRgYhMypUQAfzSP8W6gNLe0q19/t4VA==",
 +      "dev": true,
 +      "license": "MIT",
 +      "dependencies": {
 +        "@types/node": "*"
 +      }
 +    },
-     "node_modules/esbuild": {
-       "version": "0.25.12",
-       "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.25.12.tgz",
-       "integrity": "sha512-bbPBYYrtZbkt6Os6FiTLCTFxvq4tt3JKall1vRwshA3fdVztsLAatFaZobhkBC8/BrPetoa0oksYoKXoG4ryJg==",
+     "node_modules/@types/node": {
+       "version": "26.1.2",
+       "resolved": "https://registry.npmjs.org/@types/node/-/node-26.1.2.tgz",
+       "integrity": "sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "undici-types": "~8.3.0"
+       }
+     },
+     "node_modules/@types/ws": {
+       "version": "8.18.1",
+       "resolved": "https://registry.npmjs.org/@types/ws/-/ws-8.18.1.tgz",
+       "integrity": "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "@types/node": "*"
+       }
+     },
++    "node_modules/base64-js": {
++      "version": "1.5.1",
++      "resolved": "https://registry.npmjs.org/base64-js/-/base64-js-1.5.1.tgz",
++      "integrity": "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/feross"
++        },
++        {
++          "type": "patreon",
++          "url": "https://www.patreon.com/feross"
++        },
++        {
++          "type": "consulting",
++          "url": "https://feross.org/support"
++        }
++      ],
++      "license": "MIT"
++    },
++    "node_modules/better-sqlite3": {
++      "version": "11.10.0",
++      "resolved": "https://registry.npmjs.org/better-sqlite3/-/better-sqlite3-11.10.0.tgz",
++      "integrity": "sha512-EwhOpyXiOEL/lKzHz9AW1msWFNzGc/z+LzeB3/jnFJpxu+th2yqvzsSWas1v9jgs9+xiXJcD5A8CJxAG2TaghQ==",
++      "hasInstallScript": true,
++      "license": "MIT",
++      "dependencies": {
++        "bindings": "^1.5.0",
++        "prebuild-install": "^7.1.1"
++      }
++    },
++    "node_modules/bindings": {
++      "version": "1.5.0",
++      "resolved": "https://registry.npmjs.org/bindings/-/bindings-1.5.0.tgz",
++      "integrity": "sha512-p2q/t/mhvuOj/UeLlV6566GD/guowlr0hHxClI0W9m7MWYkL1F0hLo+0Aexs9HSPCtR1SXQ0TD3MMKrXZajbiQ==",
++      "license": "MIT",
++      "dependencies": {
++        "file-uri-to-path": "1.0.0"
++      }
++    },
++    "node_modules/bl": {
++      "version": "4.1.0",
++      "resolved": "https://registry.npmjs.org/bl/-/bl-4.1.0.tgz",
++      "integrity": "sha512-1W07cM9gS6DcLperZfFSj+bWLtaPGSOHWhPiGzXmvVJbRLdG82sH/Kn8EtW1VqWVA54AKf2h5k5BbnIbwF3h6w==",
++      "license": "MIT",
++      "dependencies": {
++        "buffer": "^5.5.0",
++        "inherits": "^2.0.4",
++        "readable-stream": "^3.4.0"
++      }
++    },
++    "node_modules/buffer": {
++      "version": "5.7.1",
++      "resolved": "https://registry.npmjs.org/buffer/-/buffer-5.7.1.tgz",
++      "integrity": "sha512-EHcyIPBQ4BSGlvjB16k5KgAJ27CIsHY/2JBmCRReo48y9rQ3MaUzWX3KVlBa4U7MyX02HdVj0K7C3WaB3ju7FQ==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/feross"
++        },
++        {
++          "type": "patreon",
++          "url": "https://www.patreon.com/feross"
++        },
++        {
++          "type": "consulting",
++          "url": "https://feross.org/support"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "base64-js": "^1.3.1",
++        "ieee754": "^1.1.13"
++      }
++    },
++    "node_modules/chownr": {
++      "version": "1.1.4",
++      "resolved": "https://registry.npmjs.org/chownr/-/chownr-1.1.4.tgz",
++      "integrity": "sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg==",
++      "license": "ISC"
++    },
++    "node_modules/decompress-response": {
++      "version": "6.0.0",
++      "resolved": "https://registry.npmjs.org/decompress-response/-/decompress-response-6.0.0.tgz",
++      "integrity": "sha512-aW35yZM6Bb/4oJlZncMH2LCoZtJXTRxES17vE3hoRiowU2kWHaJKFkSBDnDR+cm9J+9QhXmREyIfv0pji9ejCQ==",
++      "license": "MIT",
++      "dependencies": {
++        "mimic-response": "^3.1.0"
++      },
++      "engines": {
++        "node": ">=10"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/sindresorhus"
++      }
++    },
++    "node_modules/deep-extend": {
++      "version": "0.6.0",
++      "resolved": "https://registry.npmjs.org/deep-extend/-/deep-extend-0.6.0.tgz",
++      "integrity": "sha512-LOHxIOaPYdHlJRtCQfDIVZtfw/ufM8+rVj649RIHzcm/vGwQRXFt6OPqIFWsm2XEMrNIEtWR64sY1LEKD2vAOA==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=4.0.0"
++      }
++    },
++    "node_modules/detect-libc": {
++      "version": "2.1.2",
++      "resolved": "https://registry.npmjs.org/detect-libc/-/detect-libc-2.1.2.tgz",
++      "integrity": "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==",
++      "license": "Apache-2.0",
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/end-of-stream": {
++      "version": "1.4.5",
++      "resolved": "https://registry.npmjs.org/end-of-stream/-/end-of-stream-1.4.5.tgz",
++      "integrity": "sha512-ooEGc6HP26xXq/N+GCGOT0JKCLDGrq2bQUZrQ7gyrJiZANJ/8YDTxTpQBXGMn+WbIQXNVpyWymm7KYVICQnyOg==",
++      "license": "MIT",
++      "dependencies": {
++        "once": "^1.4.0"
++      }
++    },
++    "node_modules/expand-template": {
++      "version": "2.0.3",
++      "resolved": "https://registry.npmjs.org/expand-template/-/expand-template-2.0.3.tgz",
++      "integrity": "sha512-XYfuKMvj4O35f/pOXLObndIRvyQ+/+6AhODh+OKWj9S9498pHHn/IMszH+gt0fBCRWMNfk1ZSp5x3AifmnI2vg==",
++      "license": "(MIT OR WTFPL)",
++      "engines": {
++        "node": ">=6"
++      }
++    },
++    "node_modules/file-uri-to-path": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/file-uri-to-path/-/file-uri-to-path-1.0.0.tgz",
++      "integrity": "sha512-0Zt+s3L7Vf1biwWZ29aARiVYLx7iMGnEUl9x33fbB/j3jR81u/O2LbqK+Bm1CDSNDKVtJ/YjwY7TUd5SkeLQLw==",
++      "license": "MIT"
++    },
++    "node_modules/fs-constants": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/fs-constants/-/fs-constants-1.0.0.tgz",
++      "integrity": "sha512-y6OAwoSIf7FyjMIv94u+b5rdheZEjzR63GTyZJm5qh4Bi+2YgwLCcI/fPFZkL5PSixOt6ZNKm+w+Hfp/Bciwow==",
++      "license": "MIT"
++    },
+     "node_modules/fsevents": {
+       "version": "2.3.3",
+       "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
+       "integrity": "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
        "dev": true,
        "hasInstallScript": true,
        "license": "MIT",
-       "bin": {
-         "esbuild": "bin/esbuild"
-       },
-@@ -1037,34 +1063,544 @@
-         "fdir": "^6.5.0",
-         "picomatch": "^4.0.4"
-       },
+       "optional": true,
+       "os": [
+         "darwin"
+       ],
        "engines": {
-         "node": ">=12.0.0"
-       },
-       "funding": {
-         "url": "https://github.com/sponsors/SuperchupuDev"
+         "node": "^8.16.0 || ^10.6.0 || >=11.0.0"
        }
      },
-+    "node_modules/tsx": {
-+      "version": "4.23.9",
-+      "resolved": "https://registry.npmjs.org/tsx/-/tsx-4.23.9.tgz",
-+      "integrity": "sha512-6q8uTORRGauQVjqMQnKUucLFoeXZAfw6zKvG35GLbdKWbLdeOtZ3H4mhyA5mxuUd2o2cRTskhj59nLLQseUvUw==",
-+      "dev": true,
++    "node_modules/github-from-package": {
++      "version": "0.0.0",
++      "resolved": "https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz",
++      "integrity": "sha512-SyHy3T1v2NUXn29OsWdxmK6RwHD+vkj3v8en8AOBZ1wBQ/hCAQ5bAQTD02kW4W9tUp/3Qh6J8r9EvntiyCmOOw==",
++      "license": "MIT"
++    },
++    "node_modules/ieee754": {
++      "version": "1.2.1",
++      "resolved": "https://registry.npmjs.org/ieee754/-/ieee754-1.2.1.tgz",
++      "integrity": "sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/feross"
++        },
++        {
++          "type": "patreon",
++          "url": "https://www.patreon.com/feross"
++        },
++        {
++          "type": "consulting",
++          "url": "https://feross.org/support"
++        }
++      ],
++      "license": "BSD-3-Clause"
++    },
++    "node_modules/inherits": {
++      "version": "2.0.4",
++      "resolved": "https://registry.npmjs.org/inherits/-/inherits-2.0.4.tgz",
++      "integrity": "sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==",
++      "license": "ISC"
++    },
++    "node_modules/ini": {
++      "version": "1.3.8",
++      "resolved": "https://registry.npmjs.org/ini/-/ini-1.3.8.tgz",
++      "integrity": "sha512-JV/yugV2uzW5iMRSiZAyDtQd+nxtUnjeLt0acNdw98kKLrvuRVyB80tsREOE7yvGVgalhZ6RNXCmEHkUKBKxew==",
++      "license": "ISC"
++    },
++    "node_modules/mimic-response": {
++      "version": "3.1.0",
++      "resolved": "https://registry.npmjs.org/mimic-response/-/mimic-response-3.1.0.tgz",
++      "integrity": "sha512-z0yWI+4FDrrweS8Zmt4Ej5HdJmky15+L2e6Wgn3+iK5fWzb6T3fhNFq2+MeTRb064c6Wr4N/wv0DzQTjNzHNGQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=10"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/sindresorhus"
++      }
++    },
++    "node_modules/minimist": {
++      "version": "1.2.8",
++      "resolved": "https://registry.npmjs.org/minimist/-/minimist-1.2.8.tgz",
++      "integrity": "sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==",
++      "license": "MIT",
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/mkdirp-classic": {
++      "version": "0.5.3",
++      "resolved": "https://registry.npmjs.org/mkdirp-classic/-/mkdirp-classic-0.5.3.tgz",
++      "integrity": "sha512-gKLcREMhtuZRwRAfqP3RFW+TK4JqApVBtOIftVgjuABpAtpxhPGaDcfvbhNvD0B8iD1oUr/txX35NjcaY6Ns/A==",
++      "license": "MIT"
++    },
++    "node_modules/napi-build-utils": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/napi-build-utils/-/napi-build-utils-2.0.0.tgz",
++      "integrity": "sha512-GEbrYkbfF7MoNaoh2iGG84Mnf/WZfB0GdGEsM8wz7Expx/LlWf5U8t9nvJKXSp3qr5IsEbK04cBGhol/KwOsWA==",
++      "license": "MIT"
++    },
++    "node_modules/node-abi": {
++      "version": "3.94.0",
++      "resolved": "https://registry.npmjs.org/node-abi/-/node-abi-3.94.0.tgz",
++      "integrity": "sha512-W5ZNO5KRPB5TkYmGVD9F6YqhsglXJzE6etpbmT+f6EQElhiX/UTG551cnsRGvLG3fyZEg9HwaDmNmj5nwJ4z9g==",
 +      "license": "MIT",
 +      "dependencies": {
-+        "esbuild": "~0.28.0"
++        "semver": "^7.3.5"
++      },
++      "engines": {
++        "node": ">=10"
++      }
++    },
++    "node_modules/once": {
++      "version": "1.4.0",
++      "resolved": "https://registry.npmjs.org/once/-/once-1.4.0.tgz",
++      "integrity": "sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==",
++      "license": "ISC",
++      "dependencies": {
++        "wrappy": "1"
++      }
++    },
++    "node_modules/prebuild-install": {
++      "version": "7.1.3",
++      "resolved": "https://registry.npmjs.org/prebuild-install/-/prebuild-install-7.1.3.tgz",
++      "integrity": "sha512-8Mf2cbV7x1cXPUILADGI3wuhfqWvtiLA1iclTDbFRZkgRQS0NqsPZphna9V+HyTEadheuPmjaJMsbzKQFOzLug==",
++      "deprecated": "No longer maintained. Please contact the author of the relevant native addon; alternatives are available.",
++      "license": "MIT",
++      "dependencies": {
++        "detect-libc": "^2.0.0",
++        "expand-template": "^2.0.3",
++        "github-from-package": "0.0.0",
++        "minimist": "^1.2.3",
++        "mkdirp-classic": "^0.5.3",
++        "napi-build-utils": "^2.0.0",
++        "node-abi": "^3.3.0",
++        "pump": "^3.0.0",
++        "rc": "^1.2.7",
++        "simple-get": "^4.0.0",
++        "tar-fs": "^2.0.0",
++        "tunnel-agent": "^0.6.0"
 +      },
 +      "bin": {
-+        "tsx": "dist/cli.mjs"
++        "prebuild-install": "bin.js"
 +      },
 +      "engines": {
-+        "node": ">=18.0.0"
++        "node": ">=10"
++      }
++    },
++    "node_modules/pump": {
++      "version": "3.0.4",
++      "resolved": "https://registry.npmjs.org/pump/-/pump-3.0.4.tgz",
++      "integrity": "sha512-VS7sjc6KR7e1ukRFhQSY5LM2uBWAUPiOPa/A3mkKmiMwSmRFUITt0xuj+/lesgnCv+dPIEYlkzrcyXgquIHMcA==",
++      "license": "MIT",
++      "dependencies": {
++        "end-of-stream": "^1.1.0",
++        "once": "^1.3.1"
++      }
++    },
++    "node_modules/rc": {
++      "version": "1.2.8",
++      "resolved": "https://registry.npmjs.org/rc/-/rc-1.2.8.tgz",
++      "integrity": "sha512-y3bGgqKj3QBdxLbLkomlohkvsA8gdAiUQlSBJnBhfn+BPxg4bc62d8TcBW15wavDfgexCgccckhcZvywyQYPOw==",
++      "license": "(BSD-2-Clause OR MIT OR Apache-2.0)",
++      "dependencies": {
++        "deep-extend": "^0.6.0",
++        "ini": "~1.3.0",
++        "minimist": "^1.2.0",
++        "strip-json-comments": "~2.0.1"
 +      },
-+      "optionalDependencies": {
-+        "fsevents": "~2.3.3"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/aix-ppc64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/aix-ppc64/-/aix-ppc64-0.28.1.tgz",
-+      "integrity": "sha512-Svl7tq8k/08+p6CXPpRjQ1fKX+1odH/BQbb48fV6fj3CWHhsoIOoY87w1oHXm0qEpkIK3ZfVgp0hed3XBXzXMQ==",
-+      "cpu": [
-+        "ppc64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "aix"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/android-arm": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/android-arm/-/android-arm-0.28.1.tgz",
-+      "integrity": "sha512-0k2F129Xdio1TdJfzJ8sy1Q47vUD2NnwdhiAf7drUN1EBTfPf4hsFCtmMgu/6m8JSzsBrlmVjudMBQqOfG8usQ==",
-+      "cpu": [
-+        "arm"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "android"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/android-arm64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/android-arm64/-/android-arm64-0.28.1.tgz",
-+      "integrity": "sha512-34EGEbCIAgosYz6goLcopX6Mo7NyGv9tfwEM2/7Ce2VcVRk568iSvniGWcUXIy7wEDR1wzolcxcriFVrWYcwBg==",
-+      "cpu": [
-+        "arm64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "android"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/android-x64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/android-x64/-/android-x64-0.28.1.tgz",
-+      "integrity": "sha512-dbwY7ltSMDWsRatcRpCnES4F+im88OCUgGZjy52shC7GqHRE/cYlxNbB4Z4UpJswpcc4Qxd2oE/ufM0p61IKng==",
-+      "cpu": [
-+        "x64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "android"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/darwin-arm64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.28.1.tgz",
-+      "integrity": "sha512-TZbWkQY7kvTAXbXUT7uVACR5cMHsDiSz9z7ZKAX/RTq/WJEk3QyRr0wZpNhBDX+/0CtdqUIJlOiodQcta6tY3Q==",
-+      "cpu": [
-+        "arm64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "darwin"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/darwin-x64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/darwin-x64/-/darwin-x64-0.28.1.tgz",
-+      "integrity": "sha512-zfdzgK9ACBNZLI/CyHTOx81SyNbM6YXn7rxSgX97VjyiPl9W1i4Ka4fgKECEoFCKGpvBj5qArWIGgQjOwkgskQ==",
-+      "cpu": [
-+        "x64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "darwin"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/freebsd-arm64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/freebsd-arm64/-/freebsd-arm64-0.28.1.tgz",
-+      "integrity": "sha512-wG2EA8ENdEI0qhkSZMjfqrdY+ziCYCPMmtZjjIwOmXFjmyzEHn+UUxk5of+SYsjtfs3VpnlC7QLzSI5hY/rOAw==",
-+      "cpu": [
-+        "arm64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "freebsd"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/freebsd-x64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/freebsd-x64/-/freebsd-x64-0.28.1.tgz",
-+      "integrity": "sha512-i7dZ9vQgnvSCzi/rYCXNgtF/U+eKZNJBzu3eTQbRgHnM7tNSizLOkRFAl3qzVc/Op/u5YkHHa4pf/3DOYHthLQ==",
-+      "cpu": [
-+        "x64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "freebsd"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/linux-arm": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/linux-arm/-/linux-arm-0.28.1.tgz",
-+      "integrity": "sha512-qVXBOHQS+d5Y722GwJzJUtOLlX7km3CraOaGormF1pDtPd2C/l1SHRPgjLunLGe51Sh5YYWKMFDyV4SxgMQYTQ==",
-+      "cpu": [
-+        "arm"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "linux"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/linux-arm64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/linux-arm64/-/linux-arm64-0.28.1.tgz",
-+      "integrity": "sha512-yHs+0uc8+nvEAfAfxrWQKK5peSNzBc4PegcMO0EJ2hT71uA7vB8Ihg2e77R2P7SG5uYjPbHlLLmve4LLLRCf0g==",
-+      "cpu": [
-+        "arm64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "linux"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/linux-ia32": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/linux-ia32/-/linux-ia32-0.28.1.tgz",
-+      "integrity": "sha512-d1z4ZuP0ajrfz/FhGT4vv278rX8KnPPJx8i5+AtK7TYbx9Le9F1hyzurZpkEyjkGa9dUGhQow4C1NmeGvqxN2w==",
-+      "cpu": [
-+        "ia32"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "linux"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/linux-loong64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/linux-loong64/-/linux-loong64-0.28.1.tgz",
-+      "integrity": "sha512-M5sRjUVZrkm1OAPR3dlOYzNmN+loZKGVi1VUQGrwuqLcbR6qeAz+famMhjASeH3YVKvZz+zT1jlh/keC3Rj/lg==",
-+      "cpu": [
-+        "loong64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "linux"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/linux-mips64el": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/linux-mips64el/-/linux-mips64el-0.28.1.tgz",
-+      "integrity": "sha512-mRObBZeHh2OxcBFPWE/FjylkRgZdYuiTR3vaTozquCGOH14iP9oN4x4Ge81CoIDYQrXmIxpFumJBu5MtZpnQJQ==",
-+      "cpu": [
-+        "mips64el"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "linux"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/linux-ppc64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/linux-ppc64/-/linux-ppc64-0.28.1.tgz",
-+      "integrity": "sha512-slScBsMAb3GFDcdrCgLwZtPYRoH2H/youv10QiZyRjmsP48fznoveWytSgCI/R0ZcUgpc0ZhIUEx6LHts8yrfQ==",
-+      "cpu": [
-+        "ppc64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "linux"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/linux-riscv64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/linux-riscv64/-/linux-riscv64-0.28.1.tgz",
-+      "integrity": "sha512-kw0owk1o0GFETUJyW0jc0G4Yzs0BHZn0JDZ8JRT088vjJYX777BAs1fDGxAC+q831qOs2DTC96mNsG2opdfyyQ==",
-+      "cpu": [
-+        "riscv64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "linux"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/linux-s390x": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/linux-s390x/-/linux-s390x-0.28.1.tgz",
-+      "integrity": "sha512-/lAIjX8aYFRByhh6L5rYtPEDRqa9de/4V/juOXcta5frjvzXO4/sqEtyytse0g3zZFuWu5cDN0MkLz2qRDD2Ag==",
-+      "cpu": [
-+        "s390x"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "linux"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/linux-x64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.1.tgz",
-+      "integrity": "sha512-u/anNYF2mmVOEDwLtnQ1wOr3EZ9sTNGLWrsYGYwHWzGA3Si84IOkHXlbWTD1NB+9/1lcnweYKO54uhxZydNzfA==",
-+      "cpu": [
-+        "x64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "linux"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/netbsd-arm64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/netbsd-arm64/-/netbsd-arm64-0.28.1.tgz",
-+      "integrity": "sha512-oks0DYbLwWMmaakTsCb+zL4E+aHRVLom9IJZOAthMQEPiQmydXHkziYEsGYRx0uNV/IjEKGAV941JzH02pflqw==",
-+      "cpu": [
-+        "arm64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "netbsd"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/netbsd-x64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/netbsd-x64/-/netbsd-x64-0.28.1.tgz",
-+      "integrity": "sha512-aeL6lAnN89Hz43Mlh1G8ARasbuoYvSITDEx0tHh5b7jJnHcssqgjy9Yx430GDpmCa6OyrKoS0aNRjKundRizGg==",
-+      "cpu": [
-+        "x64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "netbsd"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/openbsd-arm64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/openbsd-arm64/-/openbsd-arm64-0.28.1.tgz",
-+      "integrity": "sha512-MEFJe5C3R8pwXdZ5Y21oo6m7ePiS0d9pWucn99O/wvyJZChoIQKrQDxKrGeW8F5+T0okTHesAmDeiHDTIq0V/Q==",
-+      "cpu": [
-+        "arm64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "openbsd"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/openbsd-x64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/openbsd-x64/-/openbsd-x64-0.28.1.tgz",
-+      "integrity": "sha512-i/ZLIOafE0Z8cI/XANJAixoJL/uRAoS2xOA3rb0xN+KK0K177cMAsQYkzHtBrtMXAKuAc7HGgcWiZ/sRC1Nxgw==",
-+      "cpu": [
-+        "x64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "openbsd"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/openharmony-arm64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/openharmony-arm64/-/openharmony-arm64-0.28.1.tgz",
-+      "integrity": "sha512-ge+Z7EXFNt2BO1oAMsVpiQ8EwndV9i1xXerAeTIK7AtPs3bKFXQM7nlRxDSIUIMeueR1CNXxqztLzdNeReKBJg==",
-+      "cpu": [
-+        "arm64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "openharmony"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/sunos-x64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/sunos-x64/-/sunos-x64-0.28.1.tgz",
-+      "integrity": "sha512-BEjgtECkL3vY+SaSQ6nzVfiALUeFxpawyp8Jmf5PtYhf1Ug40N1h/hxlhts+f1FvSvarEigdxS3BlSMI2PJLcQ==",
-+      "cpu": [
-+        "x64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "sunos"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/win32-arm64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/win32-arm64/-/win32-arm64-0.28.1.tgz",
-+      "integrity": "sha512-lCv9eK/H6ZJWbE7bh2nw54CZ9M2nupBxJcTsdk/QQnWkdSjKGuxmmH8/GWrlT1eMmZfn4dGcCjRte397WqfQXA==",
-+      "cpu": [
-+        "arm64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "win32"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/win32-ia32": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/win32-ia32/-/win32-ia32-0.28.1.tgz",
-+      "integrity": "sha512-zvb/mB2bSCoJOpoCBgYKKpX6YM6mJBlBUVUtVj41DlZJVEB6/0CKlRYxP5wWl1C1ILiCoAU5wZZ4q1P3qeS6Eg==",
-+      "cpu": [
-+        "ia32"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "win32"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/@esbuild/win32-x64": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/@esbuild/win32-x64/-/win32-x64-0.28.1.tgz",
-+      "integrity": "sha512-bm4Mowrv+GXMlpWX++EcXw/iLyd1o3+bJkC2DkWXYVvgZCqD/bSj9ctZeAMC3cIxgjRVR2Dufaiu4YPxr5gW1A==",
-+      "cpu": [
-+        "x64"
-+      ],
-+      "dev": true,
-+      "license": "MIT",
-+      "optional": true,
-+      "os": [
-+        "win32"
-+      ],
-+      "engines": {
-+        "node": ">=18"
-+      }
-+    },
-+    "node_modules/tsx/node_modules/esbuild": {
-+      "version": "0.28.1",
-+      "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.1.tgz",
-+      "integrity": "sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==",
-+      "dev": true,
-+      "hasInstallScript": true,
-+      "license": "MIT",
 +      "bin": {
-+        "esbuild": "bin/esbuild"
++        "rc": "cli.js"
++      }
++    },
++    "node_modules/readable-stream": {
++      "version": "3.6.2",
++      "resolved": "https://registry.npmjs.org/readable-stream/-/readable-stream-3.6.2.tgz",
++      "integrity": "sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA==",
++      "license": "MIT",
++      "dependencies": {
++        "inherits": "^2.0.3",
++        "string_decoder": "^1.1.1",
++        "util-deprecate": "^1.0.1"
 +      },
 +      "engines": {
-+        "node": ">=18"
++        "node": ">= 6"
++      }
++    },
++    "node_modules/safe-buffer": {
++      "version": "5.2.1",
++      "resolved": "https://registry.npmjs.org/safe-buffer/-/safe-buffer-5.2.1.tgz",
++      "integrity": "sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/feross"
++        },
++        {
++          "type": "patreon",
++          "url": "https://www.patreon.com/feross"
++        },
++        {
++          "type": "consulting",
++          "url": "https://feross.org/support"
++        }
++      ],
++      "license": "MIT"
++    },
++    "node_modules/semver": {
++      "version": "7.8.5",
++      "resolved": "https://registry.npmjs.org/semver/-/semver-7.8.5.tgz",
++      "integrity": "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==",
++      "license": "ISC",
++      "bin": {
++        "semver": "bin/semver.js"
 +      },
-+      "optionalDependencies": {
-+        "@esbuild/aix-ppc64": "0.28.1",
-+        "@esbuild/android-arm": "0.28.1",
-+        "@esbuild/android-arm64": "0.28.1",
-+        "@esbuild/android-x64": "0.28.1",
-+        "@esbuild/darwin-arm64": "0.28.1",
-+        "@esbuild/darwin-x64": "0.28.1",
-+        "@esbuild/freebsd-arm64": "0.28.1",
-+        "@esbuild/freebsd-x64": "0.28.1",
-+        "@esbuild/linux-arm": "0.28.1",
-+        "@esbuild/linux-arm64": "0.28.1",
-+        "@esbuild/linux-ia32": "0.28.1",
-+        "@esbuild/linux-loong64": "0.28.1",
-+        "@esbuild/linux-mips64el": "0.28.1",
-+        "@esbuild/linux-ppc64": "0.28.1",
-+        "@esbuild/linux-riscv64": "0.28.1",
-+        "@esbuild/linux-s390x": "0.28.1",
-+        "@esbuild/linux-x64": "0.28.1",
-+        "@esbuild/netbsd-arm64": "0.28.1",
-+        "@esbuild/netbsd-x64": "0.28.1",
-+        "@esbuild/openbsd-arm64": "0.28.1",
-+        "@esbuild/openbsd-x64": "0.28.1",
-+        "@esbuild/openharmony-arm64": "0.28.1",
-+        "@esbuild/sunos-x64": "0.28.1",
-+        "@esbuild/win32-arm64": "0.28.1",
-+        "@esbuild/win32-ia32": "0.28.1",
-+        "@esbuild/win32-x64": "0.28.1"
++      "engines": {
++        "node": ">=10"
++      }
++    },
++    "node_modules/simple-concat": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/simple-concat/-/simple-concat-1.0.1.tgz",
++      "integrity": "sha512-cSFtAPtRhljv69IK0hTVZQ+OfE9nePi/rtJmw5UjHeVyVroEqJXP1sFztKUy1qU+xvz3u/sfYJLa947b7nAN2Q==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/feross"
++        },
++        {
++          "type": "patreon",
++          "url": "https://www.patreon.com/feross"
++        },
++        {
++          "type": "consulting",
++          "url": "https://feross.org/support"
++        }
++      ],
++      "license": "MIT"
++    },
++    "node_modules/simple-get": {
++      "version": "4.0.1",
++      "resolved": "https://registry.npmjs.org/simple-get/-/simple-get-4.0.1.tgz",
++      "integrity": "sha512-brv7p5WgH0jmQJr1ZDDfKDOSeWWg+OVypG99A/5vYGPqJ6pxiaHLy8nxtFjBA7oMa01ebA9gfh1uMCFqOuXxvA==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/feross"
++        },
++        {
++          "type": "patreon",
++          "url": "https://www.patreon.com/feross"
++        },
++        {
++          "type": "consulting",
++          "url": "https://feross.org/support"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "decompress-response": "^6.0.0",
++        "once": "^1.3.1",
++        "simple-concat": "^1.0.0"
++      }
++    },
++    "node_modules/string_decoder": {
++      "version": "1.3.0",
++      "resolved": "https://registry.npmjs.org/string_decoder/-/string_decoder-1.3.0.tgz",
++      "integrity": "sha512-hkRX8U1WjJFd8LsDJ2yQ/wWWxaopEsABU1XfkM8A+j0+85JAGppt16cr1Whg6KIbb4okU6Mql6BOj+uup/wKeA==",
++      "license": "MIT",
++      "dependencies": {
++        "safe-buffer": "~5.2.0"
++      }
++    },
++    "node_modules/strip-json-comments": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/strip-json-comments/-/strip-json-comments-2.0.1.tgz",
++      "integrity": "sha512-4gB8na07fecVVkOI6Rs4e7T6NOTki5EmL7TUduTs6bu3EdnSycntVJ4re8kgZA+wx9IueI2Y11bfbgwtzuE0KQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/tar-fs": {
++      "version": "2.1.5",
++      "resolved": "https://registry.npmjs.org/tar-fs/-/tar-fs-2.1.5.tgz",
++      "integrity": "sha512-OboTd8mmMhZDNPV+UjQcK9yKAatXu2aJ+r1w4im1Otd4M4fl2hwvdoXUxIYHFTHWK/3y3FarBP70v3vwmGlOxw==",
++      "license": "MIT",
++      "dependencies": {
++        "chownr": "^1.1.1",
++        "mkdirp-classic": "^0.5.2",
++        "pump": "^3.0.0",
++        "tar-stream": "^2.1.4"
++      }
++    },
++    "node_modules/tar-stream": {
++      "version": "2.2.0",
++      "resolved": "https://registry.npmjs.org/tar-stream/-/tar-stream-2.2.0.tgz",
++      "integrity": "sha512-ujeqbceABgwMZxEJnk2HDY2DlnUZ+9oEcb1KzTVfYHio0UE6dG71n60d8D2I4qNvleWrrXpmjpt7vZeF1LnMZQ==",
++      "license": "MIT",
++      "dependencies": {
++        "bl": "^4.0.3",
++        "end-of-stream": "^1.4.1",
++        "fs-constants": "^1.0.0",
++        "inherits": "^2.0.3",
++        "readable-stream": "^3.1.1"
++      },
++      "engines": {
++        "node": ">=6"
++      }
++    },
+     "node_modules/tsx": {
+       "version": "4.23.9",
+       "resolved": "https://registry.npmjs.org/tsx/-/tsx-4.23.9.tgz",
+       "integrity": "sha512-6q8uTORRGauQVjqMQnKUucLFoeXZAfw6zKvG35GLbdKWbLdeOtZ3H4mhyA5mxuUd2o2cRTskhj59nLLQseUvUw==",
+       "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "esbuild": "~0.28.0"
+       },
+       "bin": {
+@@ -548,20 +985,32 @@
+         "@esbuild/netbsd-x64": "0.28.1",
+         "@esbuild/openbsd-arm64": "0.28.1",
+         "@esbuild/openbsd-x64": "0.28.1",
+         "@esbuild/openharmony-arm64": "0.28.1",
+         "@esbuild/sunos-x64": "0.28.1",
+         "@esbuild/win32-arm64": "0.28.1",
+         "@esbuild/win32-ia32": "0.28.1",
+         "@esbuild/win32-x64": "0.28.1"
+       }
+     },
++    "node_modules/tunnel-agent": {
++      "version": "0.6.0",
++      "resolved": "https://registry.npmjs.org/tunnel-agent/-/tunnel-agent-0.6.0.tgz",
++      "integrity": "sha512-McnNiV1l8RYeY8tBgEpuodCC1mLUdbSN+CYBL7kJsJNInOP8UjDDEwdk6Mw60vdLLrr5NHKZhMAOSrR2NZuQ+w==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "safe-buffer": "^5.0.1"
++      },
++      "engines": {
++        "node": "*"
 +      }
 +    },
      "node_modules/typescript": {
@@ -1056,933 +1529,81 @@ index 91d174a..e7ede96 100644
          "tsc": "bin/tsc",
          "tsserver": "bin/tsserver"
        },
-       "engines": {
+@@ -569,20 +1018,32 @@
          "node": ">=14.17"
        }
      },
-+    "node_modules/undici-types": {
-+      "version": "8.3.0",
-+      "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-8.3.0.tgz",
-+      "integrity": "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==",
-+      "dev": true,
+     "node_modules/undici-types": {
+       "version": "8.3.0",
+       "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-8.3.0.tgz",
+       "integrity": "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==",
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/util-deprecate": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/util-deprecate/-/util-deprecate-1.0.2.tgz",
++      "integrity": "sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==",
 +      "license": "MIT"
 +    },
-     "node_modules/vite": {
-       "version": "6.4.3",
-       "resolved": "https://registry.npmjs.org/vite/-/vite-6.4.3.tgz",
-       "integrity": "sha512-NTKlcQjlAK7MlQoyb6LgaqHc8sso/pVyUJYWMws3jg21uTJw/LddqIFPcPqP6PzpgbIcZyKI85sFE4HBrQDA8A==",
-       "dev": true,
-       "license": "MIT",
-       "dependencies": {
-         "esbuild": "^0.25.0",
-         "fdir": "^6.4.4",
-         "picomatch": "^4.0.2",
-@@ -1125,13 +1661,34 @@
-         "terser": {
-           "optional": true
-         },
-         "tsx": {
-           "optional": true
-         },
-         "yaml": {
-           "optional": true
-         }
-       }
++    "node_modules/wrappy": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/wrappy/-/wrappy-1.0.2.tgz",
++      "integrity": "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==",
++      "license": "ISC"
 +    },
-+    "node_modules/ws": {
-+      "version": "8.21.2",
-+      "resolved": "https://registry.npmjs.org/ws/-/ws-8.21.2.tgz",
-+      "integrity": "sha512-54dMVAo4WIe6SKy3vBgN+9bJZqqQ8IMRevAkOLQALhi49qkkQDQfWdAZ8KQlXiEabw88ARXXdUrlvtbKQX+aKw==",
-+      "license": "MIT",
-+      "engines": {
-+        "node": ">=10.0.0"
-+      },
-+      "peerDependencies": {
-+        "bufferutil": "^4.0.1",
-+        "utf-8-validate": ">=5.0.2"
-+      },
-+      "peerDependenciesMeta": {
-+        "bufferutil": {
-+          "optional": true
-+        },
-+        "utf-8-validate": {
-+          "optional": true
-+        }
-+      }
-     }
-   }
- }
+     "node_modules/ws": {
+       "version": "8.21.2",
+       "resolved": "https://registry.npmjs.org/ws/-/ws-8.21.2.tgz",
+       "integrity": "sha512-54dMVAo4WIe6SKy3vBgN+9bJZqqQ8IMRevAkOLQALhi49qkkQDQfWdAZ8KQlXiEabw88ARXXdUrlvtbKQX+aKw==",
+       "license": "MIT",
+       "engines": {
+         "node": ">=10.0.0"
+       },
+       "peerDependencies": {
+         "bufferutil": "^4.0.1",
 diff --git a/package.json b/package.json
-index 8b3e98d..03dcd5d 100644
+index cb0d301..b766fce 100644
 --- a/package.json
 +++ b/package.json
-@@ -1,15 +1,22 @@
+@@ -1,19 +1,21 @@
  {
-   "name": "nl-tranlates",
+   "name": "nailong-bot",
    "private": true,
    "version": "0.0.0",
    "type": "module",
    "scripts": {
-     "dev": "vite",
-     "build": "tsc && vite build",
--    "preview": "vite preview"
-+    "preview": "vite preview",
-+    "bot": "tsx bot/index.ts"
-+  },
-+  "dependencies": {
-+    "ws": "^8.18.0"
+     "bot": "tsx bot/index.ts",
+     "typecheck": "tsc --noEmit"
+   },
+   "dependencies": {
++    "better-sqlite3": "^11.7.0",
+     "ws": "^8.18.0"
    },
    "devDependencies": {
-+    "@types/node": "^26.1.2",
-+    "@types/ws": "^8.18.1",
-+    "tsx": "^4.19.0",
-     "typescript": "~5.6.2",
-     "vite": "^6.0.7"
++    "@types/better-sqlite3": "^7.6.12",
+     "@types/node": "^26.1.2",
+     "@types/ws": "^8.18.1",
+     "tsx": "^4.19.0",
+     "typescript": "~5.6.2"
    }
  }
-diff --git a/superpowers/docs/plans/2026-08-06-nailong-qqbot.md b/superpowers/docs/plans/2026-08-06-nailong-qqbot.md
+diff --git a/resource/images/.gitkeep b/resource/images/.gitkeep
 new file mode 100644
-index 0000000..93a55a2
---- /dev/null
-+++ b/superpowers/docs/plans/2026-08-06-nailong-qqbot.md
-@@ -0,0 +1,716 @@
-+# NLtranslator QQ Bot 鈥?Implementation Plan
-+
-+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-+
-+**Goal:** Add a QQ group-chat bot to the existing NLtranslator repo that detects 濂堕緳璇?(cipher text with 鍝?+ zero-width chars), decodes it, and replies with the original text when @mentioned.
-+
-+**Architecture:** A standalone Node.js process in `bot/` connects to NapCat via WebSocket for events and HTTP API for sending messages. It directly imports `src/nailong.ts` for translation and uses a simple in-memory cache for "previous message" lookback.
-+
-+**Tech Stack:** TypeScript (executed via `tsx`), `ws` for WebSocket, Node.js built-in `fetch` for HTTP API calls. Zero bot frameworks.
-+
-+## Global Constraints
-+
-+- `src/nailong.ts` must not be modified
-+- No external bot frameworks (no icqq, oicq, koishi, yunzai)
-+- All reply text comes from `.env` config
-+- NapCat connection URLs come from `.env` config
-+- Runs via `npm run bot`, TypeScript executed directly with `tsx`
-+
-+---
-+
-+## File Map
-+
-+| File | Action | Responsibility |
-+|------|--------|----------------|
-+| `package.json` | Modify | Add `ws` dependency, `tsx` devDependency, `bot` script |
-+| `tsconfig.json` | Modify | Add `bot/` to `include` |
-+| `.env.example` | Create | Configuration template for users |
-+| `bot/config.ts` | Create | Read `.env`, export typed config object |
-+| `bot/onebot.ts` | Create | OneBot v11 WS client + HTTP API wrapper |
-+| `bot/handler.ts` | Create | Message processing: detect @Bot, extract 濂堕緳璇? decode, format reply |
-+| `bot/index.ts` | Create | Entry point: wire config 鈫?client 鈫?handler, start & handle reconnect |
-+
-+---
-+
-+### Task 1: Install dependencies & update package.json
-+
-+**Files:**
-+- Modify: `package.json`
-+
-+**Interfaces:**
-+- Produces: `npm run bot` script, `ws` importable, `tsx` executable
-+
-+- [ ] **Step 1: Add `ws` dependency and `tsx` devDependency, add `bot` script**
-+
-+Read the current `package.json`, then replace it with:
-+
-+```json
-+{
-+  "name": "nl-tranlates",
-+  "private": true,
-+  "version": "0.0.0",
-+  "type": "module",
-+  "scripts": {
-+    "dev": "vite",
-+    "build": "tsc && vite build",
-+    "preview": "vite preview",
-+    "bot": "tsx bot/index.ts"
-+  },
-+  "dependencies": {
-+    "ws": "^8.18.0"
-+  },
-+  "devDependencies": {
-+    "tsx": "^4.19.0",
-+    "typescript": "~5.6.2",
-+    "vite": "^6.0.7"
-+  }
-+}
-+```
-+
-+- [ ] **Step 2: Install**
-+
-+```bash
-+npm install
-+```
-+
-+- [ ] **Step 3: Commit**
-+
-+```bash
-+git add package.json package-lock.json
-+git commit -m "chore: add ws, tsx, and bot script"
-+```
-+
-+---
-+
-+### Task 2: Create config module
-+
-+**Files:**
-+- Create: `bot/config.ts`
-+- Create: `.env.example`
-+
-+**Interfaces:**
-+- Produces: `Config` interface, `loadConfig(): Config`
-+
-+`Config` type:
-+```typescript
-+interface Config {
-+  readonly wsUrl: string;
-+  readonly httpUrl: string;
-+  readonly botQQ: string;
-+  readonly replies: {
-+    readonly decodeFail: string;
-+    readonly notFound: string;
-+    readonly timeout: string;
-+  };
-+}
-+```
-+
-+- [ ] **Step 1: Create `.env.example`**
-+
-+```env
-+# NapCat WebSocket 鍦板潃 (浜嬩欢鎺ユ敹)
-+NAPCT_WS_URL=ws://127.0.0.1:3001
-+
-+# NapCat HTTP API 鍦板潃 (鍙戦€佹秷鎭?
-+NAPCT_HTTP_URL=http://127.0.0.1:3000
-+
-+# Bot 鑷繁鐨?QQ 鍙?(鐢ㄤ簬鍒ゆ柇鏄惁琚獲)
-+BOT_QQ=123456789
-+
-+# 鍥炲鏂囨
-+REPLY_DECODE_FAIL=缈昏瘧澶辫触锛屽ザ榫欒鐨勮娉曟湁璇摝
-+REPLY_NOT_FOUND=娌℃湁妫€娴嬪埌濂堕緳璇紝璇?@鎴?+ 濂堕緳璇?鎴栧紩鐢ㄤ竴鏉″ザ榫欒娑堟伅
-+REPLY_TIMEOUT=Bot 鏆傛椂鏃犳硶鍝嶅簲锛岃绋嶅悗鍐嶈瘯
-+```
-+
-+- [ ] **Step 2: Write `bot/config.ts`**
-+
-+```typescript
-+import { readFileSync } from "node:fs";
-+import { resolve } from "node:path";
-+
-+export interface ReplyMessages {
-+  readonly decodeFail: string;
-+  readonly notFound: string;
-+  readonly timeout: string;
-+}
-+
-+export interface Config {
-+  readonly wsUrl: string;
-+  readonly httpUrl: string;
-+  readonly botQQ: string;
-+  readonly replies: ReplyMessages;
-+}
-+
-+function parseEnvFile(path: string): Record<string, string> {
-+  const content = readFileSync(path, "utf-8");
-+  const map: Record<string, string> = {};
-+  for (const line of content.split("\n")) {
-+    const trimmed = line.trim();
-+    if (trimmed === "" || trimmed.startsWith("#")) continue;
-+    const eq = trimmed.indexOf("=");
-+    if (eq === -1) continue;
-+    const key = trimmed.slice(0, eq).trim();
-+    const value = trimmed.slice(eq + 1).trim();
-+    map[key] = value;
-+  }
-+  return map;
-+}
-+
-+export function loadConfig(): Config {
-+  const envPath = resolve(process.cwd(), ".env");
-+  let env: Record<string, string>;
-+  try {
-+    env = parseEnvFile(envPath);
-+  } catch {
-+    console.error("鎵句笉鍒?.env 鏂囦欢锛岃浠?.env.example 澶嶅埗骞跺～鍐欓厤缃?);
-+    process.exit(1);
-+  }
-+
-+  const wsUrl = env["NAPCT_WS_URL"] ?? process.env["NAPCT_WS_URL"];
-+  const httpUrl = env["NAPCT_HTTP_URL"] ?? process.env["NAPCT_HTTP_URL"];
-+  const botQQ = env["BOT_QQ"] ?? process.env["BOT_QQ"];
-+
-+  if (!wsUrl) {
-+    console.error("缂哄皯 NAPCT_WS_URL 閰嶇疆");
-+    process.exit(1);
-+  }
-+  if (!httpUrl) {
-+    console.error("缂哄皯 NAPCT_HTTP_URL 閰嶇疆");
-+    process.exit(1);
-+  }
-+  if (!botQQ) {
-+    console.error("缂哄皯 BOT_QQ 閰嶇疆");
-+    process.exit(1);
-+  }
-+
-+  return {
-+    wsUrl,
-+    httpUrl,
-+    botQQ,
-+    replies: {
-+      decodeFail:
-+        env["REPLY_DECODE_FAIL"] ??
-+        process.env["REPLY_DECODE_FAIL"] ??
-+        "缈昏瘧澶辫触锛屽ザ榫欒鐨勮娉曟湁璇摝",
-+      notFound:
-+        env["REPLY_NOT_FOUND"] ??
-+        process.env["REPLY_NOT_FOUND"] ??
-+        "娌℃湁妫€娴嬪埌濂堕緳璇紝璇?@鎴?+ 濂堕緳璇?鎴栧紩鐢ㄤ竴鏉″ザ榫欒娑堟伅",
-+      timeout:
-+        env["REPLY_TIMEOUT"] ??
-+        process.env["REPLY_TIMEOUT"] ??
-+        "Bot 鏆傛椂鏃犳硶鍝嶅簲锛岃绋嶅悗鍐嶈瘯",
-+    },
-+  };
-+}
-+```
-+
-+- [ ] **Step 3: Commit**
-+
-+```bash
-+git add bot/config.ts .env.example
-+git commit -m "feat: add config module and .env.example"
-+```
-+
-+---
-+
-+### Task 3: Create OneBot v11 client
-+
-+**Files:**
-+- Create: `bot/onebot.ts`
-+
-+**Interfaces:**
-+- Consumes: `Config` (from Task 2)
-+- Produces:
-+  - `MessageSegment` type: `{ type: string; data: Record<string, string> }`
-+  - `GroupMessageEvent` type (see code below)
-+  - `GetMsgResponse` type (see code below)
-+  - `OneBotClient` class:
-+    - `constructor(config: Config)`
-+    - `connect(): Promise<void>` 鈥?establish WebSocket, reconnect on close
-+    - `onGroupMessage(fn: (e: GroupMessageEvent) => void): void`
-+    - `sendGroupMessage(groupId: number, message: MessageSegment[]): Promise<void>`
-+    - `getMessage(messageId: number): Promise<GetMsgResponse["data"]>`
-+
-+- [ ] **Step 1: Write `bot/onebot.ts`**
-+
-+```typescript
-+import WebSocket from "ws";
-+import type { Config } from "./config.ts";
-+
-+export interface MessageSegment {
-+  type: string;
-+  data: Record<string, string>;
-+}
-+
-+export interface OneBotEvent {
-+  post_type: string;
-+  message_type?: string;
-+  sub_type?: string;
-+  message_id: number;
-+  group_id?: number;
-+  user_id?: number;
-+  message: MessageSegment[];
-+  raw_message: string;
-+}
-+
-+export type GroupMessageEvent = OneBotEvent & {
-+  post_type: "message";
-+  message_type: "group";
-+  group_id: number;
-+};
-+
-+export interface GetMsgResponse {
-+  status: string;
-+  retcode: number;
-+  data: {
-+    message_id: number;
-+    message: MessageSegment[];
-+    raw_message: string;
-+  };
-+}
-+
-+export class OneBotClient {
-+  private ws: WebSocket | null = null;
-+  private handlers: ((e: GroupMessageEvent) => void)[] = [];
-+  private reconnectCount = 0;
-+  private maxReconnect = 10;
-+  private reconnectDelay = 5000;
-+  private readonly wsUrl: string;
-+  private readonly httpUrl: string;
-+
-+  constructor(config: Config) {
-+    this.wsUrl = config.wsUrl;
-+    this.httpUrl = config.httpUrl;
-+  }
-+
-+  connect(): Promise<void> {
-+    return new Promise((resolve, reject) => {
-+      this.ws = new WebSocket(this.wsUrl);
-+      this.ws.on("open", () => {
-+        console.log("[onebot] 宸茶繛鎺?NapCat:", this.wsUrl);
-+        this.reconnectCount = 0;
-+        resolve();
-+      });
-+      this.ws.on("message", (data) => this.handleMessage(data));
-+      this.ws.on("close", () => {
-+        console.log("[onebot] 杩炴帴鏂紑");
-+        this.tryReconnect();
-+      });
-+      this.ws.on("error", (err) => {
-+        if (this.ws?.readyState !== WebSocket.OPEN) {
-+          reject(err);
-+        } else {
-+          console.error("[onebot] WebSocket 閿欒:", err.message);
-+        }
-+      });
-+    });
-+  }
-+
-+  onGroupMessage(fn: (e: GroupMessageEvent) => void): void {
-+    this.handlers.push(fn);
-+  }
-+
-+  async sendGroupMessage(
-+    groupId: number,
-+    message: MessageSegment[]
-+  ): Promise<void> {
-+    const url = `${this.httpUrl}/send_group_msg`;
-+    const res = await fetch(url, {
-+      method: "POST",
-+      headers: { "Content-Type": "application/json" },
-+      body: JSON.stringify({ group_id: groupId, message, auto_escape: false }),
-+    });
-+    if (!res.ok) {
-+      throw new Error(`send_group_msg 澶辫触: HTTP ${res.status}`);
-+    }
-+    const body = (await res.json()) as { status: string; retcode: number };
-+    if (body.status !== "ok" || body.retcode !== 0) {
-+      throw new Error(`send_group_msg 澶辫触: ${JSON.stringify(body)}`);
-+    }
-+  }
-+
-+  async getMessage(messageId: number): Promise<GetMsgResponse["data"]> {
-+    const url = `${this.httpUrl}/get_msg`;
-+    const res = await fetch(url, {
-+      method: "POST",
-+      headers: { "Content-Type": "application/json" },
-+      body: JSON.stringify({ message_id: messageId }),
-+    });
-+    if (!res.ok) {
-+      throw new Error(`get_msg 澶辫触: HTTP ${res.status}`);
-+    }
-+    const body = (await res.json()) as GetMsgResponse;
-+    if (body.status !== "ok" || body.retcode !== 0) {
-+      throw new Error(`get_msg 澶辫触: ${JSON.stringify(body)}`);
-+    }
-+    return body.data;
-+  }
-+
-+  private handleMessage(data: WebSocket.RawData): void {
-+    try {
-+      const event = JSON.parse(data.toString()) as OneBotEvent;
-+      if (
-+        event.post_type === "message" &&
-+        event.message_type === "group" &&
-+        event.sub_type === "normal"
-+      ) {
-+        const ge = event as GroupMessageEvent;
-+        for (const fn of this.handlers) {
-+          fn(ge);
-+        }
-+      }
-+    } catch {
-+      // 蹇界暐瑙ｆ瀽澶辫触鐨勬秷鎭?+    }
-+  }
-+
-+  private tryReconnect(): void {
-+    if (this.reconnectCount >= this.maxReconnect) {
-+      console.error("[onebot] 閲嶈繛娆℃暟宸茶揪涓婇檺锛岄€€鍑?);
-+      process.exit(1);
-+    }
-+    this.reconnectCount++;
-+    console.log(
-+      `[onebot] ${this.reconnectDelay / 1000}s 鍚庤繘琛岀 ${this.reconnectCount} 娆￠噸杩?..`
-+    );
-+    setTimeout(() => {
-+      this.connect().catch(() => {
-+        // 閲嶈繛澶辫触鐢?close 浜嬩欢鍐嶆瑙﹀彂
-+      });
-+    }, this.reconnectDelay);
-+  }
-+}
-+```
-+
-+- [ ] **Step 2: Commit**
-+
-+```bash
-+git add bot/onebot.ts
-+git commit -m "feat: add OneBot v11 client with WS and HTTP API"
-+```
-+
-+---
-+
-+### Task 4: Create message handler
-+
-+**Files:**
-+- Create: `bot/handler.ts`
-+
-+**Interfaces:**
-+- Consumes:
-+  - `decodeFromNailong` from `../src/nailong.ts`
-+  - `HA` from `../src/nailong.ts`
-+  - `OneBotClient` from `./onebot.ts`
-+  - `GroupMessageEvent`, `MessageSegment` from `./onebot.ts`
-+  - `Config` from `./config.ts`
-+- Produces:
-+  - `MessageCache` class: `add(event: GroupMessageEvent): void`, `getPrevious(groupId: number): GroupMessageEvent | undefined`
-+  - `createHandler(client: OneBotClient, config: Config): (event: GroupMessageEvent) => Promise<void>`
-+
-+- [ ] **Step 1: Write `bot/handler.ts`**
-+
-+```typescript
-+import { decodeFromNailong, HA } from "../src/nailong.ts";
-+import type { Config } from "./config.ts";
-+import type {
-+  OneBotClient,
-+  GroupMessageEvent,
-+  MessageSegment,
-+} from "./onebot.ts";
-+
-+const ZWC_RE = /[\u200B-\u200D\u2060]/;
-+
-+function isNailong(text: string): boolean {
-+  return text.includes(HA) && ZWC_RE.test(text);
-+}
-+
-+function extractNailong(rawMessage: string): string | null {
-+  if (isNailong(rawMessage)) {
-+    return rawMessage;
-+  }
-+  return null;
-+}
-+
-+function findReplySegment(
-+  message: MessageSegment[]
-+): { id: string } | null {
-+  for (const seg of message) {
-+    if (seg.type === "reply") {
-+      return seg.data as { id: string };
-+    }
-+  }
-+  return null;
-+}
-+
-+function isAtBot(
-+  message: MessageSegment[],
-+  botQQ: string
-+): boolean {
-+  for (const seg of message) {
-+    if (seg.type === "at" && seg.data.qq === botQQ) {
-+      return true;
-+    }
-+  }
-+  return false;
-+}
-+
-+export class MessageCache {
-+  private groups = new Map<number, GroupMessageEvent[]>();
-+  private maxSize = 10;
-+
-+  add(event: GroupMessageEvent): void {
-+    const list = this.groups.get(event.group_id) ?? [];
-+    list.push(event);
-+    if (list.length > this.maxSize) {
-+      list.shift();
-+    }
-+    this.groups.set(event.group_id, list);
-+  }
-+
-+  getPrevious(groupId: number): GroupMessageEvent | undefined {
-+    const list = this.groups.get(groupId);
-+    if (!list || list.length < 2) return undefined;
-+    return list[list.length - 2];
-+  }
-+}
-+
-+export function createHandler(
-+  client: OneBotClient,
-+  config: Config
-+): (event: GroupMessageEvent) => Promise<void> {
-+  const cache = new MessageCache();
-+
-+  return async (event: GroupMessageEvent) => {
-+    cache.add(event);
-+
-+    if (!isAtBot(event.message, config.botQQ)) return;
-+
-+    const nailong = extractNailong(event.raw_message);
-+    if (nailong) {
-+      await replyWithTranslation(
-+        client,
-+        event.group_id,
-+        event.message_id,
-+        nailong,
-+        config.replies.decodeFail
-+      );
-+      return;
-+    }
-+
-+    const replySeg = findReplySegment(event.message);
-+    if (replySeg) {
-+      try {
-+        const replied = await client.getMessage(Number(replySeg.id));
-+        const rn = extractNailong(replied.raw_message);
-+        if (rn) {
-+          await replyWithTranslation(
-+            client,
-+            event.group_id,
-+            Number(replySeg.id),
-+            rn,
-+            config.replies.decodeFail
-+          );
-+          return;
-+        }
-+      } catch {
-+        await replyText(client, event, config.replies.timeout);
-+        return;
-+      }
-+    }
-+
-+    const prev = cache.getPrevious(event.group_id);
-+    if (prev) {
-+      const pn = extractNailong(prev.raw_message);
-+      if (pn) {
-+        await replyWithTranslation(
-+          client,
-+          event.group_id,
-+          prev.message_id,
-+          pn,
-+          config.replies.decodeFail
-+        );
-+        return;
-+      }
-+    }
-+
-+    await replyText(client, event, config.replies.notFound);
-+  };
-+}
-+
-+async function replyWithTranslation(
-+  client: OneBotClient,
-+  groupId: number,
-+  replyToId: number,
-+  nailongRaw: string,
-+  decodeFailText: string
-+): Promise<void> {
-+  let result: string;
-+  try {
-+    result = decodeFromNailong(nailongRaw);
-+  } catch {
-+    result = decodeFailText;
-+  }
-+  await client.sendGroupMessage(groupId, [
-+    { type: "reply", data: { id: String(replyToId) } },
-+    { type: "text", data: { text: `缈昏瘧缁撴灉锛?{result}` } },
-+  ]);
-+}
-+
-+async function replyText(
-+  client: OneBotClient,
-+  event: GroupMessageEvent,
-+  text: string
-+): Promise<void> {
-+  await client.sendGroupMessage(event.group_id, [
-+    { type: "reply", data: { id: String(event.message_id) } },
-+    { type: "text", data: { text } },
-+  ]);
-+}
-+```
-+
-+- [ ] **Step 2: Commit**
-+
-+```bash
-+git add bot/handler.ts
-+git commit -m "feat: add message handler with translation logic"
-+```
-+
-+---
-+
-+### Task 5: Create bot entry point
-+
-+**Files:**
-+- Create: `bot/index.ts`
-+
-+**Interfaces:**
-+- Consumes:
-+  - `loadConfig` from `./config.ts`
-+  - `OneBotClient` from `./onebot.ts`
-+  - `createHandler` from `./handler.ts`
-+- Produces: (runnable process)
-+
-+- [ ] **Step 1: Write `bot/index.ts`**
-+
-+```typescript
-+import { loadConfig } from "./config.ts";
-+import { OneBotClient } from "./onebot.ts";
-+import { createHandler } from "./handler.ts";
-+
-+const config = loadConfig();
-+const client = new OneBotClient(config);
-+client.onGroupMessage(createHandler(client, config));
-+
-+client
-+  .connect()
-+  .then(() => {
-+    console.log(`[bot] NLtranslator Bot 宸插惎鍔?(QQ: ${config.botQQ})`);
-+  })
-+  .catch((err) => {
-+    console.error("[bot] 鍚姩澶辫触:", err.message);
-+    process.exit(1);
-+  });
-+```
-+
-+- [ ] **Step 2: Commit**
-+
-+```bash
-+git add bot/index.ts
-+git commit -m "feat: add bot entry point"
-+```
-+
-+---
-+
-+### Task 6: Update tsconfig to include bot/
-+
-+**Files:**
-+- Modify: `tsconfig.json`
-+
-+- [ ] **Step 1: Update `tsconfig.json` include**
-+
-+Change `"include": ["src"]` to `"include": ["src", "bot"]`:
-+
-+```json
-+{
-+  "compilerOptions": {
-+    "target": "ES2020",
-+    "useDefineForClassFields": true,
-+    "module": "ESNext",
-+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-+    "skipLibCheck": true,
-+    "moduleResolution": "bundler",
-+    "allowImportingTsExtensions": true,
-+    "isolatedModules": true,
-+    "moduleDetection": "force",
-+    "noEmit": true,
-+    "strict": true,
-+    "noUnusedLocals": true,
-+    "noUnusedParameters": true,
-+    "noFallthroughCasesInSwitch": true
-+  },
-+  "include": ["src", "bot"]
-+}
-+```
-+
-+- [ ] **Step 2: Verify `tsx` can run the bot**
-+
-+```bash
-+npx tsx bot/index.ts
-+```
-+
-+Expected: Either an error about missing `.env` (meaning code is parsed) or a connection error (if NapCat isn't running).
-+
-+- [ ] **Step 3: Commit**
-+
-+```bash
-+git add tsconfig.json
-+git commit -m "chore: add bot/ to tsconfig include"
-+```
-+
-+---
-+
-+### Task 7: Manual integration test
-+
-+**Files:**
-+- No code changes 鈥?verification only
-+
-+- [ ] **Step 1: Create `.env` from `.env.example`**
-+
-+```bash
-+copy .env.example .env
-+```
-+
-+Edit `.env` to fill in your QQ number for `BOT_QQ`, keep default WS/HTTP URLs.
-+
-+- [ ] **Step 2: Start NapCat and verify connection**
-+
-+Start NapCat on the same machine. Run:
-+
-+```bash
-+npm run bot
-+```
-+
-+Expected output:
-+```
-+[onebot] 宸茶繛鎺?NapCat: ws://127.0.0.1:3001
-+[bot] NLtranslator Bot 宸插惎鍔?(QQ: <浣犵殑QQ鍙?)
-+```
-+
-+- [ ] **Step 3: Test translation flow**
-+
-+1. In a QQ group where the bot is present, have someone send: `鍝圼zero-width chars]...` (use the web app to generate a 濂堕緳璇?string and paste it)
-+2. Another member @bots the original message
-+3. Bot should reply with translation
-+
-+- [ ] **Step 4: Test fail cases**
-+
-+- @bot with no 濂堕緳璇?鈫?should reply with `REPLY_NOT_FOUND`
-+- @bot with malformed 濂堕緳璇?鈫?should reply with `REPLY_DECODE_FAIL`
-+
-+- [ ] **Step 5: Commit** (if .env.example was updated)
-+
-+```bash
-+git add .env.example
-+git commit -m "docs: finalize .env.example"
-+```
-diff --git a/superpowers/docs/specs/2026-08-06-nailong-qqbot-design.md b/superpowers/docs/specs/2026-08-06-nailong-qqbot-design.md
+index 0000000..e69de29
+diff --git a/resource/nailong.json b/resource/nailong.json
 new file mode 100644
-index 0000000..8a8171b
+index 0000000..2d425c9
 --- /dev/null
-+++ b/superpowers/docs/specs/2026-08-06-nailong-qqbot-design.md
-@@ -0,0 +1,143 @@
-+# NLtranslator QQ Bot 鈥?Design Spec
-+
-+> 鍩轰簬鐜版湁濂堕緳璇炕璇戝櫒锛屽垱寤轰竴涓?QQ 缇よ亰鏈哄櫒浜猴紝鑷姩缈昏瘧濂堕緳璇€?+
-+## Overview
-+
-+鍦?NLtranslator 浠撳簱涓柊澧炰竴涓?QQ Bot 杩涚▼锛岄€氳繃 NapCat锛圤neBot v11 鍗忚锛夋帴鍏?QQ 缇よ亰銆傜兢鎴愬憳 @鏈哄櫒浜?鍗冲彲瑙﹀彂缈昏瘧锛屾敮鎸佷笁绉嶇炕璇戞潵婧愩€?+
-+## Architecture
-+
-+```
-+ 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?   WS (浜嬩欢)    鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?  HTTP API    鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?+ 鈹? NapCat 鈹?鈫愨攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ 鈹?  Bot    鈹?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈫?鈹? NapCat  鈹?+ 鈹? (QQ)   鈹?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈫?鈹?(Node.js)鈹?鈫愨攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ 鈹? (QQ)    鈹?+ 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?  缇ゆ秷鎭?push    鈹斺攢鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹? 鍙戦€佹秷鎭?     鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?+                                  鈹?+                                  鈹?import
-+                           鈹屸攢鈹€鈹€鈹€鈹€鈹€鈻尖攢鈹€鈹€鈹€鈹€鈹€鈹?+                           鈹? nailong.ts 鈹?+                           鈹?(translater)鈹?+                           鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?+```
-+
-+- **NapCat**: 鎺ュ湪鐢ㄦ埛 QQ 鍙蜂笂锛屽疄鐜?OneBot v11 鍗忚锛屾彁渚?WebSocket 浜嬩欢鎺ㄩ€佸拰 HTTP API
-+- **Bot**: 鐙珛 Node.js 杩涚▼锛岄€氳繃 `ws` 杩炴帴 NapCat 鎺ユ敹浜嬩欢锛岄€氳繃 HTTP 鍙戦€佹秷鎭?+- **nailong.ts**: 澶嶇敤鐜版湁缈昏瘧鏍稿績锛岄浂鏀瑰姩
-+
-+## Project Structure
-+
-+```
-+NLtranslator/                    (鐜版湁浠撳簱)
-+鈹溾攢鈹€ bot/                          (鏂板鐩綍)
-+鈹?  鈹溾攢鈹€ index.ts                  Bot 鍏ュ彛锛屽惎鍔?& 杩炴帴
-+鈹?  鈹溾攢鈹€ handler.ts                娑堟伅澶勭悊 & 缈昏瘧璋冨害
-+鈹?  鈹溾攢鈹€ onebot.ts                 OneBot v11 瀹㈡埛绔皝瑁?+鈹?  鈹斺攢鈹€ config.ts                 浠?.env 璇诲彇閰嶇疆
-+鈹溾攢鈹€ src/
-+鈹?  鈹斺攢鈹€ nailong.ts                缈昏瘧鏍稿績 (鐜版湁鏂囦欢锛屼笉鍔?
-+鈹溾攢鈹€ .env.example                  鏂板锛岄厤缃ā鏉?+鈹溾攢鈹€ package.json                  淇敼锛屽姞渚濊禆鍜岃剼鏈?+鈹斺攢鈹€ tsconfig.json                 淇敼锛宨nclude bot/
-+```
-+
-+## Communication Protocol
-+
-+### 鎺ユ敹浜嬩欢锛圵ebSocket锛?+
-+Bot 浣滀负 WS 瀹㈡埛绔繛鎺?NapCat锛坄ws://127.0.0.1:3001`锛夛紝鏀跺埌 `message.group` 浜嬩欢鏃惰Е鍙戝鐞嗐€?+
-+鍏抽敭瀛楁锛?+- `message_id`: 鐢ㄤ簬寮曠敤鍥炲
-+- `group_id`: 鍙戦€佸洖澶嶇殑鐩爣缇?+- `user_id`: 鍙戦€佽€?QQ
-+- `message`: CQ 鐮佹秷鎭鏁扮粍锛屼粠涓В鏋?@mention 鍜屾枃鏈?+- `raw_message`: 绾枃鏈紝鐢ㄤ簬濂堕緳璇娴?+
-+### 鍙戦€佹秷鎭紙HTTP API锛?+
-+- `POST /send_group_msg` 鈥?鍙戦€佺兢娑堟伅锛堝甫 `[CQ:reply]` 寮曠敤锛?+- `POST /get_msg` 鈥?鑾峰彇浠绘剰娑堟伅璇︽儏锛堢敤浜庤幏鍙栬寮曠敤娑堟伅鍐呭锛?+
-+### 濂堕緳璇娴?+
-+娑堟伅婊¤冻浠ヤ笅鏉′欢鍗冲垽瀹氫负濂堕緳璇細
-+1. 鍖呭惈 `鍝坄 (`\u54C8`)
-+2. 鍖呭惈闆跺瀛楃 (`[\u200B-\u200D\u2060]`)
-+
-+## Trigger & Translation Flow
-+
-+```
-+缇ゆ秷鎭簨浠?+  鈹?+  鈹溾攢 娑堟伅鏈 @Bot 鈫?蹇界暐锛堜絾浠嶇紦瀛樿娑堟伅锛?+  鈹?+  鈹斺攢 娑堟伅琚?@Bot 鈫?+        鈹?+        鈹溾攢 娑堟伅浣撳惈濂堕緳璇?鈫?decodeFromNailong() 鈫?寮曠敤鍥炲缈昏瘧
-+        鈹?+        鈹溾攢 涓嶅惈濂堕緳璇紝浣嗘湁 reply 寮曠敤 鈫?getMsg() 鑾峰彇琚紩鐢ㄦ秷鎭?+        鈹?    鈹斺攢 鍚ザ榫欒 鈫?瑙ｇ爜 鈫?寮曠敤鍥炲琚紩鐢ㄦ秷鎭?+ 缈昏瘧
-+        鈹?+        鈹溾攢 涓嶅惈濂堕緳璇紝鏃犲紩鐢?鈫?鏌ョ紦瀛樹腑鐨勪笂涓€鏉℃秷鎭?+        鈹?    鈹斺攢 鍚ザ榫欒 鈫?瑙ｇ爜 鈫?寮曠敤鍥炲涓婁竴鏉℃秷鎭?+ 缈昏瘧
-+        鈹?+        鈹斺攢 閮戒笉鍚?鈫?寮曠敤鍥炲鎻愮ず"娌℃湁妫€娴嬪埌濂堕緳璇?
-+```
-+
-+## Reply Format
-+
-+鎵€鏈夌炕璇戝洖澶嶅潎寮曠敤鍘熸秷鎭細
-+
-+```
-+[CQ:reply,id=<鍘熸秷鎭疘D>]
-+缈昏瘧缁撴灉锛?瑙ｇ爜鍚庢枃鏈?
-+```
-+
-+閿欒鍥炲鍚岀悊锛屽紩鐢ㄥ憡鐭ュけ璐ュ師鍥犮€?+
-+## Configuration
-+
-+`.env` 鏂囦欢锛堜笉鎻愪氦锛宍.env.example` 浣滄ā鏉匡級锛?+
-+```env
-+NAPCT_WS_URL=ws://127.0.0.1:3001
-+NAPCT_HTTP_URL=http://127.0.0.1:3000
-+BOT_QQ=<浣犵殑QQ鍙?
-+REPLY_DECODE_FAIL=缈昏瘧澶辫触锛屽ザ榫欒鐨勮娉曟湁璇摝
-+REPLY_NOT_FOUND=娌℃湁妫€娴嬪埌濂堕緳璇紝璇?@鎴?+ 濂堕緳璇?鎴栧紩鐢ㄤ竴鏉″ザ榫欒娑堟伅
-+REPLY_TIMEOUT=Bot 鏆傛椂鏃犳硶鍝嶅簲锛岃绋嶅悗鍐嶈瘯
-+```
-+
-+## Dependencies
-+
-+| 鍖?| 绫诲瀷 | 鐢ㄩ€?|
-+|------|------|------|
-+| `ws` | runtime | WebSocket 瀹㈡埛绔?|
-+| `tsx` | dev | 鐩存帴鎵ц TypeScript |
-+
-+## Error Handling
-+
-+| 鍦烘櫙 | 琛屼负 |
-+|------|------|
-+| NapCat 鏂繛 | 鑷姩閲嶈繛锛?s 闂撮殧锛夛紝鏈€澶?10 娆?|
-+| 瑙ｇ爜澶辫触 | 寮曠敤鍥炲 `REPLY_DECODE_FAIL` |
-+| HTTP 璇锋眰瓒呮椂 | 寮曠敤鍥炲 `REPLY_TIMEOUT` |
-+| 鏃犵炕璇戠洰鏍?| 寮曠敤鍥炲 `REPLY_NOT_FOUND` |
-+| 鏈煡閿欒 | console.error 鏃ュ織锛屼笉鍥炲锛堥伩鍏嶅埛灞忥級 |
-+
-+## Non-Goals
-+
-+- 涓嶅疄鐜扮鑱婄炕璇?+- 涓嶅疄鐜扮紪鐮佸姛鑳斤紙bot 涓嶈В鐮佲啋缂栫爜锛?+- 涓嶆敮鎸佸 Bot 瀹炰緥
-+- 涓嶅仛娑堟伅鎸佷箙鍖?+
-+---
-+
-+## Constraints
-+
-+- 涓嶆敼鍔?`src/nailong.ts`锛岀函 import 澶嶇敤
-+- 涓嶄娇鐢ㄤ换浣?Bot Framework锛圞浣?Yunzai 绛夛級锛屾渶灏忎緷璧栧師鍒?+- 鍥炲鏂囨浠?`.env` 璇诲彇锛屾敮鎸佽嚜瀹氫箟
-+- NapCat 閰嶇疆锛圵S/HTTP 鍦板潃锛変粠 `.env` 璇诲彇
-diff --git a/tsconfig.json b/tsconfig.json
-index 8485b37..105aa9b 100644
---- a/tsconfig.json
-+++ b/tsconfig.json
-@@ -8,12 +8,12 @@
-     "moduleResolution": "bundler",
-     "allowImportingTsExtensions": true,
-     "isolatedModules": true,
-     "moduleDetection": "force",
-     "noEmit": true,
-     "strict": true,
-     "noUnusedLocals": true,
-     "noUnusedParameters": true,
-     "noFallthroughCasesInSwitch": true
-   },
--  "include": ["src"]
-+  "include": ["src", "bot"]
- }
++++ b/resource/nailong.json
+@@ -0,0 +1,10 @@
++[
++  {
++    "id": "happy-nailong",
++    "name": "蹇箰濂堕緳",
++    "description": "鍠滄鐨勯鐗╂槸绌烘皵",
++    "analysis": "浣犱粖澶╄嚜甯﹀ソ蹇冩儏鍏夌幆锛岄亣鍒颁粈涔堜簨鎯呴兘鍙互绗戠潃闈㈠銆?,
++    "file": "happy-nailong.png",
++    "rarity": "common"
++  }
++]
