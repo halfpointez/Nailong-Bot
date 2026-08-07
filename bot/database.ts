@@ -116,6 +116,21 @@ export async function initDb(resourceDir: string): Promise<void> {
     date     TEXT NOT NULL,
     PRIMARY KEY (user_id, egg_name, date)
   )`);
+  execute(`CREATE TABLE IF NOT EXISTS member_profiles (
+    group_id  INTEGER NOT NULL,
+    user_id   TEXT NOT NULL,
+    nickname  TEXT,
+    notes     TEXT DEFAULT '',
+    last_seen TEXT,
+    PRIMARY KEY (group_id, user_id)
+  )`);
+  execute(`CREATE TABLE IF NOT EXISTS chat_memories (
+    group_id  INTEGER NOT NULL,
+    date      TEXT NOT NULL,
+    summary   TEXT NOT NULL,
+    keywords  TEXT DEFAULT '',
+    PRIMARY KEY (group_id, date)
+  )`);
 
   const countRow = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM nailongs");
   if (!countRow || countRow.c === 0) {
@@ -204,5 +219,80 @@ export function triggerEasterEgg(
   execute(
     "INSERT OR IGNORE INTO easter_eggs (user_id, egg_name, date) VALUES (?, ?, ?)",
     [userId, eggName, date]
+  );
+}
+
+export interface MemberProfile {
+  group_id: number;
+  user_id: string;
+  nickname: string | null;
+  notes: string;
+  last_seen: string | null;
+}
+
+export interface ChatMemory {
+  group_id: number;
+  date: string;
+  summary: string;
+  keywords: string;
+}
+
+export function upsertMemberProfile(
+  groupId: number,
+  userId: string,
+  nickname: string | null
+): void {
+  const today = new Date().toISOString().slice(0, 10);
+  const existing = queryOne<{ user_id: string }>(
+    "SELECT user_id FROM member_profiles WHERE group_id = ? AND user_id = ?",
+    [groupId, userId]
+  );
+  if (existing) {
+    execute(
+      "UPDATE member_profiles SET nickname = ?, last_seen = ? WHERE group_id = ? AND user_id = ?",
+      [nickname, today, groupId, userId]
+    );
+  } else {
+    execute(
+      "INSERT INTO member_profiles (group_id, user_id, nickname, last_seen) VALUES (?, ?, ?, ?)",
+      [groupId, userId, nickname, today]
+    );
+  }
+}
+
+export function getMembersOfGroup(groupId: number): MemberProfile[] {
+  return queryAll<MemberProfile>(
+    "SELECT * FROM member_profiles WHERE group_id = ? ORDER BY last_seen DESC",
+    [groupId]
+  );
+}
+
+export function updateMemberNotes(
+  groupId: number,
+  userId: string,
+  notes: string
+): void {
+  execute(
+    "UPDATE member_profiles SET notes = ? WHERE group_id = ? AND user_id = ?",
+    [notes, groupId, userId]
+  );
+}
+
+export function addOrUpdateMemory(
+  groupId: number,
+  date: string,
+  summary: string,
+  keywords: string
+): void {
+  execute(
+    "INSERT OR REPLACE INTO chat_memories (group_id, date, summary, keywords) VALUES (?, ?, ?, ?)",
+    [groupId, date, summary, keywords]
+  );
+}
+
+export function getRecentMemories(groupId: number, limit: number): ChatMemory[] {
+  return queryAll<ChatMemory>(
+    "SELECT * FROM chat_memories WHERE group_id = ? ORDER BY date DESC LIMIT ?",
+    [groupId, limit]
   );
 }
