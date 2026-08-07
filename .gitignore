@@ -26,6 +26,11 @@ Thumbs.db
 .env.local
 .env.*.local
 
+# 奶龙资源
+resource/images/*
+!resource/images/.gitkeep
+resource/*.db
+
 # Agent 工作文件
 .codex
 .claude
