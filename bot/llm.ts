@@ -1,6 +1,12 @@
 import { readFileSync, existsSync } from "node:fs";
 import type { Config } from "./config.ts";
 
+export interface ChatContext {
+  groupId: number;
+  recentMessages: { name: string; text: string }[];
+  memberContext: string;
+}
+
 const NAILONG_SYSTEM_PROMPT = `你是奶龙，一只从异星流落到地球的可爱小幼龙。你不是AI，不是机器人，是真正的、活生生的奶龙。
 
 【身份】
@@ -30,21 +36,16 @@ function loadPrompt(pathOrText: string): string {
   return pathOrText;
 }
 
-export async function chatWithNailong(
+async function callOllama(
   config: Config,
-  userMessage: string
+  messages: { role: string; content: string }[],
+  maxTokens: number = 150
 ): Promise<string> {
   const body = {
     model: config.llmModel,
-    messages: [
-      { role: "system", content: loadPrompt(config.llmSystemPrompt) },
-      { role: "user", content: userMessage },
-    ],
+    messages,
     stream: false,
-    options: {
-      temperature: 0.9,
-      max_tokens: 150,
-    },
+    options: { temperature: 0.9, max_tokens: maxTokens },
   };
 
   const res = await fetch(config.llmUrl, {
@@ -55,17 +56,63 @@ export async function chatWithNailong(
   });
 
   if (!res.ok) {
-    throw new Error(`Ollama 请求失败: HTTP ${res.status}`);
+    throw new Error(`Ollama request failed: HTTP ${res.status}`);
   }
 
-  const data = (await res.json()) as {
-    message?: { content?: string };
-  };
-
+  const data = (await res.json()) as { message?: { content?: string } };
   const reply = data.message?.content?.trim();
-  if (!reply) {
-    throw new Error("Ollama 返回空回复");
+  if (!reply) throw new Error("Ollama returned empty reply");
+  return reply;
+}
+
+export async function chatWithNailong(
+  config: Config,
+  userMessage: string,
+  context?: ChatContext
+): Promise<string> {
+  let systemPrompt = loadPrompt(config.llmSystemPrompt);
+
+  if (context?.memberContext) {
+    systemPrompt += "\n\n" + context.memberContext;
   }
 
-  return reply;
+  return callOllama(config, [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userMessage },
+  ]);
+}
+
+export async function shouldPopIn(
+  config: Config,
+  context: ChatContext
+): Promise<boolean> {
+  const recentText = context.recentMessages
+    .map(m => `${m.name}: ${m.text}`)
+    .join("\n");
+
+  const answer = await callOllama(config, [
+    {
+      role: "system",
+      content: "You are Nailong. People in the group are chatting. Should you respond? Reply only 'yes' or 'no'. Criteria: topic is about food, play, dragons, Xiaoqi => yes. Pure logistics, nothing to add => no.",
+    },
+    { role: "user", content: `Recent messages:\n${recentText}` },
+  ], 10);
+
+  return answer.toLowerCase().includes("yes");
+}
+
+export async function summarizeChat(
+  config: Config,
+  messages: string[]
+): Promise<string> {
+  const text = messages.join("\n");
+  const answer = await callOllama(config, [
+    {
+      role: "system",
+      content: "Summarize the following group chat in 2-3 short Chinese sentences. Extract key topics and interesting moments. Output the summary directly without prefix.",
+    },
+    { role: "user", content: text },
+  ], 200);
+
+  return answer;
 }
