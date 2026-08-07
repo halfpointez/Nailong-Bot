@@ -5,6 +5,7 @@ import { handleCommand } from "./commands.ts";
 import { recordMessage, checkBurst } from "./scheduler.ts";
 import { addCoins } from "./nailong-party.ts";
 import { isEasterEggCoolingDown, triggerEasterEgg } from "./database.ts";
+import { chatWithNailong } from "./llm.ts";
 
 const ZWC_RE = /[\u200B-\u200D\u2060]/;
 
@@ -115,6 +116,20 @@ export function createHandler(
         { type: "text", data: { text: `奶龙语：${encoded}` } },
       ]);
       return;
+    }
+
+    if (config.llmEnabled) {
+      try {
+        const cleaned = stripCQCodes(event.raw_message);
+        const reply = await chatWithNailong(config, cleaned);
+        await client.sendGroupMessage(event.group_id, [
+          { type: "reply", data: { id: String(event.message_id) } },
+          { type: "text", data: { text: reply } },
+        ]);
+        return;
+      } catch (err) {
+        console.error("[handler] LLM 调用失败:", err);
+      }
     }
 
     await replyText(client, event, config.replies.notFound);

@@ -20,6 +20,10 @@ export interface Config {
   readonly replies: ReplyMessages;
   readonly nailongResourceDir: string;
   readonly easterEggs: EasterEgg[];
+  readonly llmEnabled: boolean;
+  readonly llmUrl: string;
+  readonly llmModel: string;
+  readonly llmSystemPrompt: string;
 }
 
 function parseEnvFile(path: string): Record<string, string> {
@@ -66,6 +70,10 @@ export function loadConfig(): Config {
     },
     nailongResourceDir: env["NAILONG_RESOURCE_DIR"] ?? process.env["NAILONG_RESOURCE_DIR"] ?? resolve(process.cwd(), "resource"),
     easterEggs: parseEasterEggs(env),
+    llmEnabled: (env["LLM_ENABLED"] ?? process.env["LLM_ENABLED"] ?? "false") === "true",
+    llmUrl: env["LLM_URL"] ?? process.env["LLM_URL"] ?? "http://localhost:11434/api/chat",
+    llmModel: env["LLM_MODEL"] ?? process.env["LLM_MODEL"] ?? "qwen2.5:7b",
+    llmSystemPrompt: env["LLM_SYSTEM_PROMPT"] ?? process.env["LLM_SYSTEM_PROMPT"] ?? "",
   };
 }
 
