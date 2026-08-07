@@ -67,10 +67,17 @@ function isJailbreakOutput(text: string): boolean {
 }
 
 function loadPrompt(pathOrText: string): string {
-  if (!pathOrText) return NAILONG_SYSTEM_PROMPT;
-  if (existsSync(pathOrText)) {
-    return readFileSync(pathOrText, "utf-8");
+  if (!pathOrText) {
+    console.log("[llm] loadPrompt: 空路径, 使用内置 fallback");
+    return NAILONG_SYSTEM_PROMPT;
   }
+  const asFile = existsSync(pathOrText);
+  if (asFile) {
+    const content = readFileSync(pathOrText, "utf-8");
+    console.log(`[llm] loadPrompt: 从文件加载, 路径="${pathOrText}", 长度=${content.length}字符`);
+    return content;
+  }
+  console.log(`[llm] loadPrompt: 文件不存在="${pathOrText}", 作为原始文本使用 (长度=${pathOrText.length})`);
   return pathOrText;
 }
 
@@ -79,6 +86,8 @@ async function callOllama(
   messages: { role: string; content: string }[],
   maxTokens: number = 150
 ): Promise<string> {
+  const startTime = Date.now();
+  console.log(`[llm] Ollama调用: model=${config.llmModel}, systemLen=${messages[0]?.content?.length ?? 0}字`);
   const body = {
     model: config.llmModel,
     messages,
@@ -100,6 +109,9 @@ async function callOllama(
   const data = (await res.json()) as { message?: { content?: string } };
   const reply = data.message?.content?.trim();
   if (!reply) throw new Error("Ollama returned empty reply");
+
+  const elapsed = Date.now() - startTime;
+  console.log(`[llm] Ollama返回: 耗时=${elapsed}ms, 回复长度=${reply.length}字, 前60字="${reply.slice(0, 60)}"`);
   return reply;
 }
 
