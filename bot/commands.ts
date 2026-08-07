@@ -25,6 +25,7 @@ const COMMAND_ALIASES: Record<string, string[]> = {
   奶龙图鉴: ["奶龙图鉴", "/奶龙图鉴"],
   随机奶龙: ["随机奶龙", "/随机奶龙", "奶龙"],
   奶龙币: ["奶龙币", "/奶龙币"],
+  帮助: ["帮助", "/帮助"],
 };
 
 export function parseCommand(rawMessage: string): string | null {
@@ -110,6 +111,30 @@ export async function handleCommand(
     case "奶龙币": {
       const bal = getBalance(userId);
       const text = `💰 奶龙币：${bal.coins} | 已收集 ${bal.signInDays} 只 | 已抽卡 ${bal.totalDraws} 次`;
+      await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text } }]);
+      return true;
+    }
+    case "帮助": {
+      const text = `📖 奶龙Bot 功能列表：
+
+🎯 奶龙收集
+/签到 — 每日签到 +10奶龙币
+/抽奶龙 — 消耗10币抽一只新奶龙（不重复）
+/我的奶龙 — 查看已收集的奶龙
+/奶龙图鉴 — 查看全部奶龙图鉴
+/随机奶龙 — 随机发一张奶龙图
+/奶龙币 — 查看余额
+
+🔤 翻译
+@Bot + 奶龙语 — 翻译奶龙语为中文
+@Bot + 翻译 中文 — 将中文编码为奶龙语
+
+🎪 彩蛋
+群聊说「我是奶龙」「奶龙奶龙」「我喜欢奶龙」触发
+
+🏆 群聊奖励
+每小时发言最多者 +1奶龙币
+10分钟内50条消息全员 +1奶龙币`;
       await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text } }]);
       return true;
     }
