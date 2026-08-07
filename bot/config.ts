@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 export interface ReplyMessages {
@@ -42,6 +42,13 @@ function parseEnvFile(path: string): Record<string, string> {
   return map;
 }
 
+function resolvePromptPath(pathOrText: string): string {
+  if (!pathOrText) return "";
+  const abs = resolve(process.cwd(), pathOrText);
+  if (existsSync(abs)) return abs;
+  return pathOrText;
+}
+
 export function loadConfig(): Config {
   const envPath = resolve(process.cwd(), ".env");
   let env: Record<string, string> = {};
@@ -75,7 +82,7 @@ export function loadConfig(): Config {
     llmEnabled: (env["LLM_ENABLED"] ?? process.env["LLM_ENABLED"] ?? "false") === "true",
     llmUrl: env["LLM_URL"] ?? process.env["LLM_URL"] ?? "http://localhost:11434/api/chat",
     llmModel: env["LLM_MODEL"] ?? process.env["LLM_MODEL"] ?? "qwen2.5:7b",
-    llmSystemPrompt: env["LLM_SYSTEM_PROMPT"] ?? process.env["LLM_SYSTEM_PROMPT"] ?? "",
+    llmSystemPrompt: resolvePromptPath(env["LLM_SYSTEM_PROMPT"] ?? process.env["LLM_SYSTEM_PROMPT"] ?? ""),
   };
 }
 
