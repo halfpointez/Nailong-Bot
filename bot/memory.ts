@@ -21,6 +21,7 @@ export class MessageBuffer {
     if (!text) return;
 
     upsertMemberProfile(groupId, userId, nickname || null);
+    console.log(`[memory] 记录成员: group=${groupId}, user=${nickname || userId}, 消息="${text.slice(0, 25)}"`);
 
     const list = this.groups.get(groupId) ?? [];
     list.push({ name: nickname || userId, text, userId });
@@ -72,6 +73,8 @@ export class PopInGuard {
 export function assembleContext(groupId: number): string {
   const members = getMembersOfGroup(groupId);
   const memories = getRecentMemories(groupId, 3);
+  console.log(`[memory] assembleContext: group=${groupId}, 成员=${members.length}人, 记忆=${memories.length}条`);
+  if (members.length > 0) console.log(`[memory] 最近成员: ${members.slice(0, 5).map(m => m.nickname || m.user_id).join(', ')}`);
 
   const parts: string[] = [];
 

@@ -63,13 +63,15 @@ export function createHandler(
   const guard = new PopInGuard();
 
   return async (event: GroupMessageEvent) => {
+    console.log(`[handler] 消息: group=${event.group_id}, user=${event.user_id}, raw="${event.raw_message.slice(0, 30)}"`);
     cache.add(event);
 
     const uid = String(event.user_id);
     recordMessage(event.group_id, uid);
     await checkBurst(client, event.group_id);
 
-    if (!isAtBot(event.message, config.botQQ)) {
+    const atBot = isAtBot(event.message, config.botQQ);
+    if (!atBot) {
       await checkEasterEggs(client, config, event);
       if (config.llmEnabled) {
         buffer.add(event.group_id, String(event.user_id), event.raw_message, "");
@@ -81,14 +83,15 @@ export function createHandler(
     }
 
     const cleaned = stripCQCodes(event.raw_message);
-    console.log(`[debug] @Bot 消息, 清洗后: "${cleaned}"`);
+    console.log(`[handler] @Bot消息, 清洗后="${cleaned}"`);
 
     const cmdHandled = await handleCommand(client, config, event);
+    console.log(`[handler] 命令=${cmdHandled ? '已处理' : '未命中'}`);
     if (cmdHandled) return;
 
     const nailong = extractNailong(stripCQCodes(event.raw_message));
     if (nailong) {
-      console.log("[debug] → 奶龙语检测命中, 进入解码");
+      console.log("[handler] → 奶龙语命中, 解码");
       await replyWithTranslation(client, event.group_id, event.message_id, nailong, config.replies.decodeFail);
       return;
     }
@@ -128,7 +131,7 @@ export function createHandler(
     }
 
     if (config.llmEnabled) {
-      console.log("[debug] → 进入 LLM 聊天");
+      console.log("[handler] → LLM聊天");
       try {
         const cleaned = stripCQCodes(event.raw_message);
         const ctx = assembleContext(event.group_id);
@@ -147,7 +150,9 @@ export function createHandler(
       } catch (err) {
         console.error("[handler] LLM 调用失败:", err);
       }
-      console.log("[debug] → LLM 失败, 走兜底 notFound");
+      console.log("[handler] → LLM失败, 走notFound");
+    } else {
+      console.log("[handler] → LLM未启用, 走notFound");
     }
 
     await replyText(client, event, config.replies.notFound);
