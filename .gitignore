@@ -1,10 +1,6 @@
 # 依赖
 node_modules/
 
-# 构建产物
-dist/
-dist-ssr/
-
 # 日志
 logs/
 *.log
@@ -37,6 +33,7 @@ Thumbs.db
 .omo
 .trellis
 AGENTS.md
+.superpowers
 
 #bot 账号
 .env
