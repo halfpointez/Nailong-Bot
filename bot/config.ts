@@ -45,8 +45,9 @@ function parseEnvFile(path: string): Record<string, string> {
 function resolvePromptPath(pathOrText: string): string {
   if (!pathOrText) return "";
   const abs = resolve(process.cwd(), pathOrText);
-  if (existsSync(abs)) return abs;
-  return pathOrText;
+  const resolved = existsSync(abs) ? abs : pathOrText;
+  console.log(`[config] Prompt: 原始="${pathOrText.slice(0, 50)}", 绝对="${abs.slice(0, 60)}", 文件存在=${existsSync(abs)}, 最终=${resolved === abs ? '绝对路径' : '原始文本'}`);
+  return resolved;
 }
 
 export function loadConfig(): Config {
