@@ -6,6 +6,7 @@ import {
   getAllNaiLongs,
 } from "./database.ts";
 import type { NaiLongItem } from "./database.ts";
+import { resolve } from "node:path";
 
 export const RARITY_WEIGHTS: Record<string, number> = {
   common: 60,
@@ -164,5 +165,5 @@ function weightedRandom(items: NaiLongItem[]): NaiLongItem {
 }
 
 export function imageFilePath(item: NaiLongItem, resourceDir: string): string {
-  return resourceDir + "/images/" + item.file;
+  return resolve(resourceDir, "images", item.file);
 }

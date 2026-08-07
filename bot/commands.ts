@@ -18,6 +18,11 @@ function stripCQCodes(raw: string): string {
     .trim();
 }
 
+function fileUri(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  return normalized.startsWith("/") ? "file://" + normalized : "file:///" + normalized;
+}
+
 const COMMAND_ALIASES: Record<string, string[]> = {
   签到: ["签到", "/签到"],
   抽奶龙: ["抽奶龙", "/抽奶龙", "每日奶龙", "/每日奶龙"],
@@ -65,7 +70,7 @@ export async function handleCommand(
       const imgPath = imageFilePath(result.item, config.nailongResourceDir);
       const segments: MessageSegment[] = [reply];
       if (existsSync(imgPath)) {
-        segments.push({ type: "image", data: { file: "file:///" + imgPath.replace(/\\/g, "/") } });
+        segments.push({ type: "image", data: { file: fileUri(imgPath) } });
       }
       segments.push({ type: "text", data: { text: result.message } });
       await client.sendGroupMessage(groupId, segments);
@@ -98,7 +103,7 @@ export async function handleCommand(
       const imgPath = imageFilePath(item, config.nailongResourceDir);
       const segments: MessageSegment[] = [reply];
       if (existsSync(imgPath)) {
-        segments.push({ type: "image", data: { file: "file:///" + imgPath.replace(/\\/g, "/") } });
+        segments.push({ type: "image", data: { file: fileUri(imgPath) } });
       }
       const stars = "⭐".repeat(rarityStars(item.rarity));
       segments.push({
