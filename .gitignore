@@ -27,8 +27,6 @@ Thumbs.db
 .env.*.local
 
 # 奶龙资源
-resource/images/*
-!resource/images/.gitkeep
 resource/*.db
 
 # Agent 工作文件
