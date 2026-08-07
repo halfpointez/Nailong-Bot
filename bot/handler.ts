@@ -9,7 +9,10 @@ import { isEasterEggCoolingDown, triggerEasterEgg } from "./database.ts";
 const ZWC_RE = /[\u200B-\u200D\u2060]/;
 
 function stripCQCodes(rawMessage: string): string {
-  return rawMessage.replace(/\[CQ:[^\]]+\]/g, "").trim();
+  return rawMessage
+    .replace(/\[CQ:[^\]]+\]/g, "")
+    .replace(/@\S+\s*/g, "")
+    .trim();
 }
 
 function isNailong(text: string): boolean {

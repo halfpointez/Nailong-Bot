@@ -12,7 +12,10 @@ import type { OneBotClient, GroupMessageEvent, MessageSegment } from "./onebot.t
 import { existsSync } from "node:fs";
 
 function stripCQCodes(raw: string): string {
-  return raw.replace(/\[CQ:[^\]]+\]/g, "").trim();
+  return raw
+    .replace(/\[CQ:[^\]]+\]/g, "")
+    .replace(/@\S+\s*/g, "")
+    .trim();
 }
 
 const COMMAND_ALIASES: Record<string, string[]> = {
