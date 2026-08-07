@@ -1,205 +1,223 @@
-# Final Branch Review — 每日奶龙 Gacha System
+# Final Code Review: Nailong Memory & Ambient Pop-in
 
-**Branch commits:** 9 commits (0f4e3ae..8898027)  
-**Files changed:** 13 files, +1135 / -72  
-**Typecheck:** Passes cleanly (`tsc --noEmit`)
+**Branch:** feature/nailong-memory-ambience
+**Commits reviewed:** `b3dbe11` .. `80f00f4` (5 commits, 6 files, +347/-20)
+**Date:** 2026-08-07
 
 ---
 
 ## 1. Spec Compliance
 
-### Database
-| Requirement | Status | Notes |
-|---|---|---|
-| SQLite via better-sqlite3 | ✅ | |
-| 4 tables (nailongs, users, collections, easter_eggs) | ✅ | |
-| nailong.json template (id/name/description/analysis/file/rarity) | ✅ | |
-| Rarity weights: common 60%, rare 25%, epic 12%, legendary 3% | ✅ | `nailong-party.ts:10-15` |
+### Database (`bot/database.ts`)
 
-### Sign-in
-| Requirement | Status | Notes |
-|---|---|---|
-| Daily +10 coins | ✅ | `nailong-party.ts:37` |
-| No double sign-in | ✅ | Checks `sign_in_date === td` at `nailong-party.ts:29` |
+| Check | Status |
+|-------|--------|
+| `member_profiles` table in `initDb` | PASS |
+| `chat_memories` table in `initDb` | PASS |
+| `upsertMemberProfile(groupId, userId, nickname): void` | PASS |
+| `getMembersOfGroup(groupId): MemberProfile[]` | PASS |
+| `updateMemberNotes(groupId, userId, notes): void` | PASS |
+| `addOrUpdateMemory(groupId, date, summary, keywords): void` | PASS |
+| `getRecentMemories(groupId, limit): ChatMemory[]` | PASS |
 
-### Draw
-| Requirement | Status | Notes |
-|---|---|---|
-| -10 coins cost | ✅ | `nailong-party.ts:56` |
-| Weighted random, excluding owned | ✅ | `nailong-party.ts:67` |
-| "集齐" handling | ✅ | `nailong-party.ts:69-77` |
-| Insufficient coins handling | ✅ | `nailong-party.ts:57` |
-| Duplicate draw label "(已拥有)" | ⚠️ | Dead code — candidates filter excludes owned items, so `isNew` is always `true` (see Code Quality) |
+### Message Buffer (`bot/memory.ts`)
 
-### My Collection / Full Dex
-| Requirement | Status | Notes |
-|---|---|---|
-| ✅/❌ markers on full dex | ✅ | `commands.ts:82` |
-| My collection shows owned only | ✅ | |
-| Full dex shows all items | ✅ | |
+| Check | Status |
+|-------|--------|
+| `MessageBuffer` class with `maxSize = 8` | PASS |
+| CQ codes stripped on `add()` | PASS |
+| `upsertMemberProfile` called on `add()` | PASS |
+| `getRecent()` returns `{name, text}[]` | PASS |
+| `count()` returns buffer size | PASS |
+| `clear()` deletes buffer | PASS |
 
-### Random NaiLong
-| Requirement | Status | Notes |
-|---|---|---|
-| Free (no coin check) | ✅ | |
-| No collection recording | ✅ | |
+### PopInGuard (`bot/memory.ts`)
 
-### Balance View
-| Requirement | Status | Notes |
-|---|---|---|
-| Shows coins + collection count + draw count | ⚠️ | Spec says `已签到 3 天`, code says `已收集 N 只`. The `signInDays` field actually returns `getCollections().length` — misleading variable name. No sign-in day counter exists in DB. Acceptable divergence but inconsistent with spec. |
+| Check | Status |
+|-------|--------|
+| 5-minute cooldown (`POP_IN_COOLDOWN = 5 * 60 * 1000`) | PASS |
+| 100/hr max (`MAX_PER_HOUR = 100`) | PASS |
+| `canPopIn(groupId): boolean` | PASS |
+| `recordPopIn(groupId): void` | PASS |
 
-### Hourly Settlement
-| Requirement | Status | Notes |
-|---|---|---|
-| 0 speakers → "哼！都不说话 奶龙好无聊" | ✅ | `scheduler.ts:89-90` |
-| ≥1 speakers → top speaker +1 coin | ✅ | `scheduler.ts:98-99` |
+### Context Assembly (`bot/memory.ts`)
 
-### Burst Detection
-| Requirement | Status | Notes |
-|---|---|---|
-| 10min/50msg threshold | ✅ | `scheduler.ts:19-20` |
-| "你们都是奶龙！+1奶龙币" | ✅ | |
-| 30min cooldown | ✅ | `scheduler.ts:21` |
-| All speakers get +1 coin | ✅ | `scheduler.ts:66-69` |
+| Check | Status |
+|-------|--------|
+| `assembleContext(groupId): string` | PASS |
+| Fetches members via `getMembersOfGroup` | PASS |
+| Fetches recent memories via `getRecentMemories(groupId, 3)` | PASS |
+| Produces `【你认识的群友】` section | PASS |
+| Produces `【最近群聊动态】` section | PASS |
 
-### Easter Eggs
-| Requirement | Status | Notes |
-|---|---|---|
-| 3 defaults (我是奶龙, 奶龙奶龙, 我喜欢奶龙) | ✅ | `config.ts:75-79` |
-| +2 coins each | ✅ | |
-| Configurable via EASTER_EGGS env var | ✅ | `config.ts:72-92` |
-| Once per day per user per egg | ❌ | **CRITICAL BUG** — see below |
+### LLM Module (`bot/llm.ts`)
 
-### Image Sending
-| Requirement | Status | Notes |
-|---|---|---|
-| file:/// protocol | ✅ | `commands.ts:64,97` |
-| existsSync check before sending | ✅ | `commands.ts:63,96` |
-| Correct path construction | ⚠️ | Uses string concat `resourceDir + "/images/" + item.file`, not `path.resolve()` — functional but fragile |
+| Check | Status |
+|-------|--------|
+| `ChatContext` interface exported | PASS |
+| `chatWithNailong` accepts optional `context?: ChatContext` | PASS |
+| `memberContext` appended to system prompt | PASS |
+| `shouldPopIn(config, context): Promise<boolean>` | PASS |
+| `summarizeChat(config, messages): Promise<string>` | PASS |
+| `callOllama` refactored as shared internal helper | PASS |
 
-### Command Routing
-| Requirement | Status | Notes |
-|---|---|---|
-| All commands require @Bot | ✅ | `handler.ts:69` |
-| Translation flow still works after command routing | ✅ | `handler.ts:74-107` |
+### Handler (`bot/handler.ts`)
 
-### Global Constraints
-| Requirement | Status | Notes |
-|---|---|---|
-| `src/nailong.ts` not modified | ✅ | Untouched |
-| No external bot frameworks | ✅ | |
-| Config from `.env` | ✅ | |
-| Runs via `npm run bot` with `tsx` | ✅ | `package.json:7` |
+| Check | Status |
+|-------|--------|
+| Non-@ flow: easterEggs → buffer.add → tryPopIn | PASS (see issue #1) |
+| Buffer trigger at `count >= 5` | PASS |
+| @Bot LLM fallback calls `assembleContext` | PASS |
+| `tryPopIn` clears buffer on all exit paths | PASS (reviewed 4 exit paths) |
+| Error handling: try/catch + console.error + buffer.clear | PASS |
+
+### Startup (`bot/index.ts`)
+
+| Check | Status |
+|-------|--------|
+| `startDailySummarizer` imported and called | PASS |
+| Called after client connects | PASS |
+
+### Skill (`resource/nailong-skill.md`)
+
+| Check | Status |
+|-------|--------|
+| `【互动模式】` section added | PASS |
+| Interaction patterns documented | PASS |
 
 ---
 
 ## 2. Code Quality
 
-### Imports
-| Check | Status |
-|---|---|
-| ESM with `.ts` extensions | ✅ |
-| No unused imports | ✅ (tsc passes `noUnusedLocals`) |
+### No Circular Imports
+- `memory.ts` → `database.ts` (one-directional)
+- `handler.ts` → `llm.ts`, `memory.ts`
+- `memory.ts` does NOT import `llm.ts`
+- `llm.ts` does NOT import `memory.ts`
+- **PASS**
 
-### Dead Code / Unused Exports
-- `getNaiLongById` in `database.ts:127` — exported but never imported anywhere
-- `getNaiLongById` import not present in any consumer file
-- `HourlyChatStats.timestamp` in `scheduler.ts:6` — field is set but never read
-- `isNew` / `dupeLabel` logic in `nailong-party.ts:80,90` — always `isNew=true` because `candidates` is filtered to unowned items; the `if (isNew)` at line 81 is always taken; the `else` branch (dupeLabel = "（已拥有）") at line 90 is unreachable
+### Global Constraints
 
-### Code Duplication
-- `rarityStars` function duplicated in both `commands.ts:117-123` and `nailong-party.ts:148-154`
-- `stripCQCodes` function duplicated in both `commands.ts:14-16` and `handler.ts:11-13`
+| Constraint | Status |
+|-----------|--------|
+| `src/nailong.ts` not modified | PASS (confirmed via `git diff`) |
+| No new npm dependencies | PASS |
+| `sql.js` remains only persistence layer | PASS |
+| Existing features (commands, translation, gacha, scheduler) preserved | PASS |
 
-### Type Safety
-| Check | Status |
-|---|---|
-| No `any` usage | ✅ |
-| All interfaces well-typed | ✅ |
-| `readonly` modifiers on Config interfaces | ✅ |
+### Unused Imports / Variables
+- No unused imports detected in any modified file
+- `_config` and `_client` in `startDailySummarizer` are underscore-prefixed placeholders (see issue #3)
 
 ### Error Handling
-| Check | Status |
-|---|---|
-| `existsSync` before image send | ✅ |
-| try/catch on burst/settlement message sends | ✅ |
-| try/catch on `getMessage` API call | ✅ |
-| Handler swallows individual handler errors | ✅ |
+- `tryPopIn` catches exceptions gracefully with `console.error` — PASS
+- `buffer.clear()` runs outside try/catch, guaranteed on all paths — PASS
+- LLM fallback in @Bot path retains existing try/catch — PASS
 
-### Memory Management
-| Check | Status |
-|---|---|
-| `hourlyStats` Map entries cleaned on settlement | ✅ |
-| `burstStates` Map entries **never removed** | ❌ — Groups that leave/stop chatting will have stale burst state entries accumulate forever |
-
-### Handler Flow
-| Check | Status |
-|---|---|
-| Non-@Bot: easter eggs → return | ✅ |
-| @Bot: commands → translation fallback | ✅ |
-| `recordMessage` + `checkBurst` called for ALL messages | ✅ (correct — burst detection operates on all messages) |
-
-### Misc
-- `imageFilePath` uses string concatenation instead of `path.resolve()` (`nailong-party.ts:167`)
-- `easter_eggs` table PRIMARY KEY includes `date` in SELECT but not in INSERT uniqueness constraint (see Critical bug below)
+### Existing Feature Regression
+- `checkEasterEggs` still called on non-@ path — PASS
+- `handleCommand` still called on @Bot path before any LLM — PASS
+- Translation (nailong decode/encode) still works — PASS
+- `replyText` fallback preserved — PASS
+- `MessageCache` still created and used — PASS
 
 ---
 
-## 3. Issues
+## 3. Issues Found
 
-### CRITICAL
+### 🔴 ISSUE #1: Easter egg messages are NOT buffered
+**Location:** `bot/handler.ts:77-84`
+**Severity:** Minor / Design divergence
 
-**Easter egg cooldown is broken — infinite daily coins.**
+`checkEasterEggs()` returns early when an egg matches (line 172 of handler.ts), so the subsequent `buffer.add()` and `tryPopIn()` calls are never reached for easter-egg-triggering messages.
 
-`easter_eggs` table has `PRIMARY KEY (user_id, egg_name)` without `date` (`database.ts:62-67`). On day 1, the trigger inserts `(user, egg, day1)`. On day 2:
-1. `isEasterEggCoolingDown(user, egg, day2)` — SELECT returns no row (existing row has `day1`) → check passes (not in cooldown)
-2. Coins are added (`handler.ts:125`)
-3. `triggerEasterEgg(user, egg, day2)` — `INSERT OR IGNORE` fails silently because PRIMARY KEY `(user, egg)` already occupied by the day-1 row with stale date
-4. Result: on every subsequent day, the check passes and coins are added, but the row never updates
+The spec's flow diagram shows:
+```
+每条普通群消息 → 彩蛋触发 → 处理 → 继续到 buffer.add
+```
 
-**Fix:** Change PRIMARY KEY in the CREATE TABLE to `(user_id, egg_name, date)` — or use `INSERT ... ON CONFLICT (user_id, egg_name) DO UPDATE SET date = excluded.date`.
+But the actual flow is:
+```
+每条普通群消息 → 彩蛋触发 → 处理 → return (skip buffer)
+```
 
-**File:** `database.ts:38-68`, `database.ts:131-141`
+**Assessment:** Arguably correct — easter egg messages ("我是奶龙", "奶龙奶龙") are formulaic and not useful for conversational context. The LLM decision prompt would always return "no" for these. The spec should be updated to reflect this.
+
+### 🟡 ISSUE #2: `startDailySummarizer` is a stub
+**Location:** `bot/memory.ts:96-112`
+**Severity:** Major / Missing feature
+
+The function only logs at 3am and reschedules. It does NOT:
+- Collect buffered messages
+- Call `summarizeChat()`
+- Store results in `chat_memories`
+
+```typescript
+export function startDailySummarizer(_config: Config, _client: OneBotClient): void {
+  const scheduleNext = () => {
+    // ... computes next 3am ...
+    setTimeout(() => {
+      console.log("[memory] 每日摘要时间:", new Date().toLocaleString());
+      scheduleNext();  // <-- just reschedules, no actual work
+    }, ms);
+  };
+  scheduleNext();
+}
+```
+
+**Assessment:** The spec explicitly requires building message history, calling `summarizeChat`, and storing to `chat_memories`. This is the only incomplete feature. The `_` prefix on params signals intent to implement later, but the spec doesn't mark it as optional.
+
+### 🟡 ISSUE #3: Nickname always empty in buffer
+**Location:** `bot/handler.ts:79`
+**Severity:** Minor / Pre-existing type limitation
+
+```typescript
+buffer.add(event.group_id, String(event.user_id), event.raw_message, "");
+```
+
+The `GroupMessageEvent` type (`bot/onebot.ts:20-24`) does not include a `sender` field, so nickname is always `""`. Members show up by `user_id` in context fragments (e.g., "- 123456789（你还不太熟）").
+
+**Assessment:** Pre-existing limitation in the OneBot type definitions, not introduced by this PR. Fixing this would require enriching the `GroupMessageEvent` type with `sender.nickname`. Not blocking.
+
+### 🟢 ISSUE #4: Spec-Code `ChatContext` interface divergence
+**Location:** `bot/llm.ts:4-8`
+**Severity:** Info / Design choice
+
+**Spec defines:**
+```typescript
+interface ChatContext {
+  groupId: number;
+  recentMessages: { name: string; text: string }[];
+  memberProfiles: { name: string; notes: string }[];  // structured
+  recentMemories: string[];                             // separate
+}
+```
+
+**Code implements:**
+```typescript
+export interface ChatContext {
+  groupId: number;
+  recentMessages: { name: string; text: string }[];
+  memberContext: string;  // pre-assembled string
+}
+```
+
+**Assessment:** The code inlines the assembly in `memory.ts::assembleContext()` and passes a single string. This is a better interface — it keeps the LLM module decoupled from the database schema and reduces parameter count. Not a defect.
 
 ---
 
-### IMPORTANT
+## 4. Summary
 
-1. **Balance `signInDays` returns owned count, not sign-in days.**  
-   `nailong-party.ts:137` — `getBalance().signInDays` = `getCollections(userId).length`. Variable name is misleading. Display text `已收集 N 只` diverges from spec's `已签到 3 天`. DB has no sign-in-day counter, only `sign_in_date`. If spec compliance matters, either add a counter column or update the spec.
+| Category | Count |
+|----------|-------|
+| Spec checks passed | 28/28 |
+| Minor issues | 2 |
+| Missing feature | 1 (daily summarizer stub) |
 
-2. **Unreachable `isNew=false` branch in drawNaiLong.**  
-   `nailong-party.ts:80` — `isNew` is always `true` because `candidates` is pre-filtered to unowned items. The `dupeLabel = "（已拥有）"` path is dead. Either remove it or change the draw logic to include owned items (spec says "从用户未拥有的奶龙中" so the filter is correct, the dead branch should be removed).
+### Verdict: **Needs fixes**
 
-3. **`burstStates` Map never cleaned.**  
-   `scheduler.ts:17` — Burst state entries for groups accumulate indefinitely. Consider periodic cleanup of entries for inactive groups (e.g., hourly alongside settlement).
+The daily summarizer stub (`startDailySummarizer`) must either:
+1. Be implemented to collect buffered messages, call `summarizeChat`, and store results, OR
+2. The spec must be updated to mark daily summarization as a future feature
 
----
-
-### MINOR
-
-1. **Duplicated `rarityStars`** in `commands.ts:117` and `nailong-party.ts:148` — should be extracted to a shared module.
-2. **Duplicated `stripCQCodes`** in `commands.ts:14` and `handler.ts:11` — same.
-3. **`getNaiLongById`** in `database.ts:127` — unused export.
-4. **`HourlyChatStats.timestamp`** in `scheduler.ts:6` — field is never read.
-5. **`imageFilePath`** uses string concatenation instead of `path.resolve()` (`nailong-party.ts:167`). Functional but fragile.
-
----
-
-## 4. Overall Verdict
-
-**Needs fixes before merge** — due to the critical easter egg cooldown bug (infinite daily coins exploit). The rest of the implementation is solid with only minor spec divergences and code quality nits.
-
-### Required before merge:
-- Fix easter egg PRIMARY KEY to include `date`
-
-### Recommended before merge:
-- Remove dead `isNew`/`dupeLabel` code in `drawNaiLong`
-- Add `burstStates` cleanup
-- Fix `signInDays` variable name or add sign-in day counter
-
-### Nice to have:
-- Deduplicate `rarityStars` and `stripCQCodes`
-- Remove `getNaiLongById` unused export
-- Use `path.resolve()` in `imageFilePath`
+All other systems (database, memory buffer, pop-in guard, context assembly, LLM injection, handler flow) are correctly implemented and match the spec.

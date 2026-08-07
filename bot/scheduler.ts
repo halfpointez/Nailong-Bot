@@ -1,6 +1,7 @@
 import { addCoins } from "./nailong-party.ts";
 import type { OneBotClient, MessageSegment } from "./onebot.ts";
 import type { Config } from "./config.ts";
+import { getTimeGreeting, getTimeWindow, getIdleMessage } from "./greetings.ts";
 
 interface HourlyChatStats {
   counts: Map<string, number>;
@@ -31,39 +32,6 @@ function greetingKey(groupId: number, window: string): string {
   const today = new Date().toISOString().slice(0, 10);
   return `${groupId}:${window}:${today}`;
 }
-
-function getTimeGreeting(): string | null {
-  const h = new Date().getHours();
-  if (h >= 7 && h <= 10) return "morning";
-  if (h >= 11 && h <= 13) return "noon";
-  if (h >= 22 || h <= 1) return "night";
-  return null;
-}
-
-const GREETINGS: Record<string, string[]> = {
-  morning: [
-    "早安安！太阳公公都起来了！奶龙也起来了！嘿嘿~",
-    "呼……奶龙刚睡醒……今天有什么好吃吃吗？",
-    "早上好呀！奶龙今天比昨天更厉害了一点点！",
-  ],
-  noon: [
-    "中午啦！该吃饭饭了！奶龙肚肚已经在叫了！",
-    "你们中午吃啥？奶龙什么都想吃！除了苦瓜！",
-    "呼……好饱饱……奶龙想睡觉觉了……zzzz……",
-  ],
-  night: [
-    "呼噜呼噜……奶龙好困困……大家晚安晚安！",
-    "晚上啦！该睡觉觉了！奶龙先睡啦~明天见！",
-    "今天玩得好开心！晚安！明天继续和奶龙玩哦~",
-  ],
-};
-
-const IDLE_MESSAGES = [
-  "有人吗……奶龙好无聊哦……",
-  "怎么都不说话？都变成暴暴龙了吗？",
-  "呼……好安静……奶龙要睡着了……zzzz",
-  "奶龙数星星……一颗奶龙……两颗奶龙……三颗奶龙……",
-];
 
 export function recordMessage(groupId: number, userId: string): void {
   const now = Date.now();
@@ -171,33 +139,31 @@ async function tickLifecycle(client: OneBotClient, config: Config): Promise<void
   if (!config.llmEnabled) return;
 
   const now = Date.now();
+  const greeting = getTimeGreeting();
 
   for (const [groupId, lastMsg] of groupLastMessage) {
-    const idle = now - lastMsg;
-
-    const greeting = getTimeGreeting();
     if (greeting) {
-      const key = greetingKey(groupId, greeting);
-      if (!groupGreetings.has(key)) {
-        groupGreetings.set(key, greeting);
-        const messages = GREETINGS[greeting];
-        if (messages) {
-          const msg = messages[Math.floor(Math.random() * messages.length)];
+      const window = getTimeWindow();
+      if (window) {
+        const key = greetingKey(groupId, window);
+        if (!groupGreetings.has(key)) {
+          groupGreetings.set(key, greeting);
           try {
-            await client.sendGroupMessage(groupId, [{ type: "text", data: { text: msg } }]);
+            await client.sendGroupMessage(groupId, [{ type: "text", data: { text: greeting } }]);
             groupLastIdle.set(groupId, now);
           } catch (e) {
-            console.error("[lifecycle] 定时问候发送失败:", e);
+            console.error("[lifecycle] 问候发送失败:", e);
           }
         }
       }
       continue;
     }
 
+    const idle = now - lastMsg;
     if (idle > IDLE_THRESHOLD_MS) {
       const lastIdle = groupLastIdle.get(groupId) ?? 0;
       if (now - lastIdle > IDLE_COOLDOWN_MS && Math.random() < 0.33) {
-        const msg = IDLE_MESSAGES[Math.floor(Math.random() * IDLE_MESSAGES.length)];
+        const msg = getIdleMessage(groupId);
         try {
           await client.sendGroupMessage(groupId, [{ type: "text", data: { text: msg } }]);
           groupLastIdle.set(groupId, now);

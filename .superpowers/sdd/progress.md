@@ -9,3 +9,4 @@ Fix round: 4 issues fixed (inline detection, reconnect stall, reconnect guard, p
 Task D1: complete (commits ff3efb0..b37b1d2, review clean)
 Task D2: complete (commits b37b1d2..2898554, review clean)
 Task D3: complete (commits 2898554..ad3acb4, review clean)
+Task M1: complete (commits 6d2db01..b3dbe11, review clean)

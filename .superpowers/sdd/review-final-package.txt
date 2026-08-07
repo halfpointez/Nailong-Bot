@@ -1,551 +1,169 @@
-﻿8898027 feat: add resource template and update gitignore
-0978876 feat: init database and scheduler on bot startup
-c4ad8f2 feat: integrate commands, easter eggs, and chat counting into handler
-7c1b6ed feat: add command parsing and routing
-b216bdb feat: add nailong-party config keys and easter eggs
-416681b feat: add hourly scheduler and burst detection
-ad3acb4 feat: add nailong gacha core logic
-2898554 feat: add SQLite database module
-b37b1d2 chore: add better-sqlite3 dependency
+﻿80f00f4 feat: add daily summarizer to startup and interaction patterns to skill
+1fe6eb4 feat: integrate ambient pop-in and context-aware LLM into handler
+caf5676 feat: add message buffer, context assembler, and pop-in guard
+9ef5b9d feat: add context injection, pop-in decision, and chat summarization to LLM
+b3dbe11 feat: add member_profiles and chat_memories tables to database
 ---STAT---
- .env.example             |  11 +-
- .gitignore               |   5 +
- bot/commands.ts          | 124 +++++++++++++
- bot/config.ts            |  63 ++++---
- bot/database.ts          | 142 +++++++++++++++
- bot/handler.ts           |  94 +++++-----
- bot/index.ts             |   5 +
- bot/nailong-party.ts     | 168 +++++++++++++++++
- bot/scheduler.ts         | 122 +++++++++++++
- package-lock.json        | 461 +++++++++++++++++++++++++++++++++++++++++++++++
- package.json             |   2 +
- resource/images/.gitkeep |   0
- resource/nailong.json    |  10 +
- 13 files changed, 1135 insertions(+), 72 deletions(-)
+ bot/database.ts           |  90 +++++++++++++++++++++++++++++++++++++
+ bot/handler.ts            |  66 ++++++++++++++++++++++++++-
+ bot/index.ts              |   2 +
+ bot/llm.ts                |  83 ++++++++++++++++++++++++++--------
+ bot/memory.ts             | 112 ++++++++++++++++++++++++++++++++++++++++++++++
+ resource/nailong-skill.md |  14 ++++++
+ 6 files changed, 347 insertions(+), 20 deletions(-)
 ---DIFF---
-diff --git a/.env.example b/.env.example
-index 96fd065..fd2a157 100644
---- a/.env.example
-+++ b/.env.example
-@@ -1,13 +1,20 @@
- # NapCat WebSocket 鍦板潃 (浜嬩欢鎺ユ敹)
- NAPCT_WS_URL=ws://127.0.0.1:3001
- 
- # NapCat HTTP API 鍦板潃 (鍙戦€佹秷鎭?
- NAPCT_HTTP_URL=http://127.0.0.1:3000
- 
--# Bot 鑷繁鐨?QQ 鍙?(鐢ㄤ簬鍒ゆ柇鏄惁琚獲)
-+# Bot 鑷繁鐨?QQ 鍙? BOT_QQ=
- 
- # 鍥炲鏂囨
- REPLY_DECODE_FAIL=濂堕緳鍚笉鎳傚摝
- REPLY_NOT_FOUND=鍝? 娌℃湁浜哄湪璇村ザ榫欒!
--REPLY_TIMEOUT=鍝庡憖, 濂堕緳鍦ㄧ潯瑙夊憿, 绛変笅鍐嶅彨鎴?\ No newline at end of file
-+REPLY_TIMEOUT=鍝庡憖, 濂堕緳鍦ㄧ潯瑙夊憿, 绛変笅鍐嶅彨鎴?+
-+# 濂堕緳璧勬簮鐩綍锛堥粯璁?project/resource锛?+NAILONG_RESOURCE_DIR=resource
-+
-+# 褰╄泲閰嶇疆锛堟牸寮忥細鍏抽敭璇嶁啋鍥炲鈫掑竵鏁?鍏抽敭璇嶁啋鍥炲鈫掑竵鏁帮級
-+# 涓嶉厤缃垯浣跨敤榛樿褰╄泲
-+# EASTER_EGGS=鎴戞槸濂堕緳鈫掓垜鎵嶆槸濂堕緳锛?2濂堕緳甯佲啋2;濂堕緳濂堕緳鈫掑彨鎴戝共鍢涳紒+2濂堕緳甯佲啋2;鎴戝枩娆㈠ザ榫欌啋鎴戜篃鍠滄浣狅紒+2濂堕緳甯佲啋2
-diff --git a/.gitignore b/.gitignore
-index c149a75..8a5d45c 100644
---- a/.gitignore
-+++ b/.gitignore
-@@ -19,20 +19,25 @@ pnpm-debug.log*
- *.njsproj
- *.sln
- *.sw?
- Thumbs.db
- 
- # 鐜鍙橀噺
- .env
- .env.local
- .env.*.local
- 
-+# 濂堕緳璧勬簮
-+resource/images/*
-+!resource/images/.gitkeep
-+resource/*.db
-+
- # Agent 宸ヤ綔鏂囦欢
- .codex
- .claude
- .opencode
- .omo
- .trellis
- AGENTS.md
- .superpowers
- 
- #bot 璐﹀彿
-diff --git a/bot/commands.ts b/bot/commands.ts
-new file mode 100644
-index 0000000..8b272b3
---- /dev/null
-+++ b/bot/commands.ts
-@@ -0,0 +1,124 @@
-+import {
-+  signIn,
-+  drawNaiLong,
-+  getMyCollections,
-+  getFullDex,
-+  getRandomNaiLong,
-+  getBalance,
-+  imageFilePath,
-+} from "./nailong-party.ts";
-+import type { Config } from "./config.ts";
-+import type { OneBotClient, GroupMessageEvent, MessageSegment } from "./onebot.ts";
-+import { existsSync } from "node:fs";
-+
-+function stripCQCodes(raw: string): string {
-+  return raw.replace(/\[CQ:[^\]]+\]/g, "").trim();
-+}
-+
-+const COMMAND_ALIASES: Record<string, string[]> = {
-+  绛惧埌: ["绛惧埌", "/绛惧埌"],
-+  鎶藉ザ榫? ["鎶藉ザ榫?, "/鎶藉ザ榫?, "姣忔棩濂堕緳", "/姣忔棩濂堕緳"],
-+  鎴戠殑濂堕緳: ["鎴戠殑濂堕緳", "/鎴戠殑濂堕緳"],
-+  濂堕緳鍥鹃壌: ["濂堕緳鍥鹃壌", "/濂堕緳鍥鹃壌"],
-+  闅忔満濂堕緳: ["闅忔満濂堕緳", "/闅忔満濂堕緳", "濂堕緳"],
-+  濂堕緳甯? ["濂堕緳甯?, "/濂堕緳甯?],
-+};
-+
-+export function parseCommand(rawMessage: string): string | null {
-+  const text = stripCQCodes(rawMessage);
-+  for (const [cmd, aliases] of Object.entries(COMMAND_ALIASES)) {
-+    for (const alias of aliases) {
-+      if (text === alias) return cmd;
-+    }
-+  }
-+  return null;
-+}
-+
-+export async function handleCommand(
-+  client: OneBotClient,
-+  config: Config,
-+  event: GroupMessageEvent
-+): Promise<boolean> {
-+  const cmd = parseCommand(event.raw_message);
-+  if (!cmd) return false;
-+
-+  const userId = String(event.user_id);
-+  const groupId = event.group_id;
-+  const reply = { type: "reply", data: { id: String(event.message_id) } } as MessageSegment;
-+
-+  switch (cmd) {
-+    case "绛惧埌": {
-+      const result = signIn(userId);
-+      await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text: result.message } }]);
-+      return true;
-+    }
-+    case "鎶藉ザ榫?: {
-+      const result = drawNaiLong(userId);
-+      if (!result.success || !result.item) {
-+        await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text: result.message } }]);
-+        return true;
-+      }
-+      const imgPath = imageFilePath(result.item, config.nailongResourceDir);
-+      const segments: MessageSegment[] = [reply];
-+      if (existsSync(imgPath)) {
-+        segments.push({ type: "image", data: { file: "file:///" + imgPath.replace(/\\/g, "/") } });
-+      }
-+      segments.push({ type: "text", data: { text: result.message } });
-+      await client.sendGroupMessage(groupId, segments);
-+      return true;
-+    }
-+    case "鎴戠殑濂堕緳": {
-+      const col = getMyCollections(userId);
-+      const lines = col.items.map(
-+        i => `${"猸?.repeat(rarityStars(i.rarity))} ${i.name}`
-+      );
-+      const text = `浣犵殑濂堕緳鍥鹃壌 (${col.owned}/${col.total})锛歕n${lines.join("\n")}`;
-+      await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text } }]);
-+      return true;
-+    }
-+    case "濂堕緳鍥鹃壌": {
-+      const dex = getFullDex(userId);
-+      const lines = dex.items.map(
-+        i => `${"猸?.repeat(rarityStars(i.rarity))} ${i.name} ${i.isOwned ? "鉁? : "鉂?}`
-+      );
-+      const text = `濂堕緳鍥鹃壌 (${dex.total})锛歕n${lines.join("\n")}`;
-+      await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text } }]);
-+      return true;
-+    }
-+    case "闅忔満濂堕緳": {
-+      const item = getRandomNaiLong();
-+      if (!item) {
-+        await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text: "鍥鹃壌杩樻病鏈夊ザ榫欙紒" } }]);
-+        return true;
-+      }
-+      const imgPath = imageFilePath(item, config.nailongResourceDir);
-+      const segments: MessageSegment[] = [reply];
-+      if (existsSync(imgPath)) {
-+        segments.push({ type: "image", data: { file: "file:///" + imgPath.replace(/\\/g, "/") } });
-+      }
-+      const stars = "猸?.repeat(rarityStars(item.rarity));
-+      segments.push({
-+        type: "text",
-+        data: { text: `鎴戞槸銆?{item.name}銆慭n${item.description}\n杩欐槸浠婂ぉ鐨勯殢鏈哄ザ榫檦\n锛?{stars}锛塦 },
-+      });
-+      await client.sendGroupMessage(groupId, segments);
-+      return true;
-+    }
-+    case "濂堕緳甯?: {
-+      const bal = getBalance(userId);
-+      const text = `馃挵 濂堕緳甯侊細${bal.coins} | 宸叉敹闆?${bal.signInDays} 鍙?| 宸叉娊鍗?${bal.totalDraws} 娆;
-+      await client.sendGroupMessage(groupId, [reply, { type: "text", data: { text } }]);
-+      return true;
-+    }
-+  }
-+  return false;
-+}
-+
-+function rarityStars(rarity: string): number {
-+  switch (rarity) {
-+    case "legendary": return 4;
-+    case "epic": return 3;
-+    case "rare": return 2;
-+    default: return 1;
-+  }
-+}
-diff --git a/bot/config.ts b/bot/config.ts
-index 1e0a135..d905fe2 100644
---- a/bot/config.ts
-+++ b/bot/config.ts
-@@ -1,24 +1,32 @@
- import { readFileSync } from "node:fs";
- import { resolve } from "node:path";
- 
- export interface ReplyMessages {
-   readonly decodeFail: string;
-   readonly notFound: string;
-   readonly timeout: string;
- }
- 
-+export interface EasterEgg {
-+  readonly keyword: string;
-+  readonly reply: string;
-+  readonly coins: number;
-+}
-+
- export interface Config {
-   readonly wsUrl: string;
-   readonly httpUrl: string;
-   readonly botQQ: string;
-   readonly replies: ReplyMessages;
-+  readonly nailongResourceDir: string;
-+  readonly easterEggs: EasterEgg[];
- }
- 
- function parseEnvFile(path: string): Record<string, string> {
-   const content = readFileSync(path, "utf-8");
-   const map: Record<string, string> = {};
-   for (const line of content.split("\n")) {
-     const trimmed = line.trim();
-     if (trimmed === "" || trimmed.startsWith("#")) continue;
-     const eq = trimmed.indexOf("=");
-     if (eq === -1) continue;
-@@ -36,43 +44,50 @@ export function loadConfig(): Config {
-     env = parseEnvFile(envPath);
-   } catch {
-     console.error("鎵句笉鍒?.env 鏂囦欢锛岃浠?.env.example 澶嶅埗骞跺～鍐欓厤缃?);
-     process.exit(1);
-   }
- 
-   const wsUrl = env["NAPCT_WS_URL"] ?? process.env["NAPCT_WS_URL"];
-   const httpUrl = env["NAPCT_HTTP_URL"] ?? process.env["NAPCT_HTTP_URL"];
-   const botQQ = env["BOT_QQ"] ?? process.env["BOT_QQ"];
- 
--  if (!wsUrl) {
--    console.error("缂哄皯 NAPCT_WS_URL 閰嶇疆");
--    process.exit(1);
--  }
--  if (!httpUrl) {
--    console.error("缂哄皯 NAPCT_HTTP_URL 閰嶇疆");
--    process.exit(1);
--  }
--  if (!botQQ) {
--    console.error("缂哄皯 BOT_QQ 閰嶇疆");
--    process.exit(1);
--  }
-+  if (!wsUrl) { console.error("缂哄皯 NAPCT_WS_URL 閰嶇疆"); process.exit(1); }
-+  if (!httpUrl) { console.error("缂哄皯 NAPCT_HTTP_URL 閰嶇疆"); process.exit(1); }
-+  if (!botQQ) { console.error("缂哄皯 BOT_QQ 閰嶇疆"); process.exit(1); }
- 
-   return {
-     wsUrl,
-     httpUrl,
-     botQQ,
-     replies: {
--      decodeFail:
--        env["REPLY_DECODE_FAIL"] ??
--        process.env["REPLY_DECODE_FAIL"] ??
--        "缈昏瘧澶辫触锛屽ザ榫欒鐨勮娉曟湁璇摝",
--      notFound:
--        env["REPLY_NOT_FOUND"] ??
--        process.env["REPLY_NOT_FOUND"] ??
--        "娌℃湁妫€娴嬪埌濂堕緳璇紝璇?@鎴?+ 濂堕緳璇?鎴栧紩鐢ㄤ竴鏉″ザ榫欒娑堟伅",
--      timeout:
--        env["REPLY_TIMEOUT"] ??
--        process.env["REPLY_TIMEOUT"] ??
--        "Bot 鏆傛椂鏃犳硶鍝嶅簲锛岃绋嶅悗鍐嶈瘯",
-+      decodeFail: env["REPLY_DECODE_FAIL"] ?? process.env["REPLY_DECODE_FAIL"] ?? "缈昏瘧澶辫触锛屽ザ榫欒鐨勮娉曟湁璇摝",
-+      notFound: env["REPLY_NOT_FOUND"] ?? process.env["REPLY_NOT_FOUND"] ?? "娌℃湁妫€娴嬪埌濂堕緳璇紝璇?@鎴?+ 濂堕緳璇?鎴栧紩鐢ㄤ竴鏉″ザ榫欒娑堟伅",
-+      timeout: env["REPLY_TIMEOUT"] ?? process.env["REPLY_TIMEOUT"] ?? "Bot 鏆傛椂鏃犳硶鍝嶅簲锛岃绋嶅悗鍐嶈瘯",
-     },
-+    nailongResourceDir: env["NAILONG_RESOURCE_DIR"] ?? process.env["NAILONG_RESOURCE_DIR"] ?? resolve(process.cwd(), "resource"),
-+    easterEggs: parseEasterEggs(env),
-   };
- }
-+
-+function parseEasterEggs(env: Record<string, string>): EasterEgg[] {
-+  const raw = env["EASTER_EGGS"] ?? process.env["EASTER_EGGS"];
-+  if (!raw) {
-+    return [
-+      { keyword: "鎴戞槸濂堕緳", reply: "鎴戞墠鏄ザ榫欙紒+2濂堕緳甯?, coins: 2 },
-+      { keyword: "濂堕緳濂堕緳", reply: "鍙垜骞插槢锛?2濂堕緳甯?, coins: 2 },
-+      { keyword: "鎴戝枩娆㈠ザ榫?, reply: "鎴戜篃鍠滄浣狅紒+2濂堕緳甯?, coins: 2 },
-+    ];
-+  }
-+  const eggs: EasterEgg[] = [];
-+  for (const part of raw.split(";")) {
-+    const m = part.match(/^(.+?)鈫?.+?)鈫?\d+)$/);
-+    if (m) {
-+      eggs.push({ keyword: m[1], reply: m[2], coins: parseInt(m[3], 10) });
-+    }
-+  }
-+  return eggs.length > 0 ? eggs : [
-+    { keyword: "鎴戞槸濂堕緳", reply: "鎴戞墠鏄ザ榫欙紒+2濂堕緳甯?, coins: 2 },
-+    { keyword: "濂堕緳濂堕緳", reply: "鍙垜骞插槢锛?2濂堕緳甯?, coins: 2 },
-+    { keyword: "鎴戝枩娆㈠ザ榫?, reply: "鎴戜篃鍠滄浣狅紒+2濂堕緳甯?, coins: 2 },
-+  ];
-+}
 diff --git a/bot/database.ts b/bot/database.ts
-new file mode 100644
-index 0000000..f318b0c
---- /dev/null
+index d38ff6c..a31aa29 100644
+--- a/bot/database.ts
 +++ b/bot/database.ts
-@@ -0,0 +1,142 @@
-+import Database from "better-sqlite3";
-+import { readFileSync } from "node:fs";
-+import { resolve } from "node:path";
+@@ -109,20 +109,35 @@ export async function initDb(resourceDir: string): Promise<void> {
+     nailong_id  TEXT NOT NULL,
+     obtained_at TEXT NOT NULL,
+     PRIMARY KEY (user_id, nailong_id)
+   )`);
+   execute(`CREATE TABLE IF NOT EXISTS easter_eggs (
+     user_id  TEXT NOT NULL,
+     egg_name TEXT NOT NULL,
+     date     TEXT NOT NULL,
+     PRIMARY KEY (user_id, egg_name, date)
+   )`);
++  execute(`CREATE TABLE IF NOT EXISTS member_profiles (
++    group_id  INTEGER NOT NULL,
++    user_id   TEXT NOT NULL,
++    nickname  TEXT,
++    notes     TEXT DEFAULT '',
++    last_seen TEXT,
++    PRIMARY KEY (group_id, user_id)
++  )`);
++  execute(`CREATE TABLE IF NOT EXISTS chat_memories (
++    group_id  INTEGER NOT NULL,
++    date      TEXT NOT NULL,
++    summary   TEXT NOT NULL,
++    keywords  TEXT DEFAULT '',
++    PRIMARY KEY (group_id, date)
++  )`);
+ 
+   const countRow = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM nailongs");
+   if (!countRow || countRow.c === 0) {
+     const jsonPath = resolve(resourceDir, "nailong.json");
+     const data = JSON.parse(readFileSync(jsonPath, "utf-8")) as NaiLongItem[];
+     for (const item of data) {
+       execute(
+         "INSERT OR IGNORE INTO nailongs (id, name, description, analysis, file, rarity) VALUES (?, ?, ?, ?, ?, ?)",
+         [item.id, item.name, item.description, item.analysis, item.file, item.rarity]
+       );
+@@ -199,10 +214,85 @@ export function isEasterEggCoolingDown(
+ export function triggerEasterEgg(
+   userId: string,
+   eggName: string,
+   date: string
+ ): void {
+   execute(
+     "INSERT OR IGNORE INTO easter_eggs (user_id, egg_name, date) VALUES (?, ?, ?)",
+     [userId, eggName, date]
+   );
+ }
 +
-+export interface NaiLongItem {
-+  id: string;
-+  name: string;
-+  description: string;
-+  analysis: string;
-+  file: string;
-+  rarity: "common" | "rare" | "epic" | "legendary";
-+}
-+
-+export interface UserRecord {
++export interface MemberProfile {
++  group_id: number;
 +  user_id: string;
-+  coins: number;
-+  sign_in_date: string | null;
-+  total_draws: number;
++  nickname: string | null;
++  notes: string;
++  last_seen: string | null;
 +}
 +
-+export interface CollectionRecord {
-+  user_id: string;
-+  nailong_id: string;
-+  obtained_at: string;
++export interface ChatMemory {
++  group_id: number;
++  date: string;
++  summary: string;
++  keywords: string;
 +}
 +
-+let db: Database.Database | null = null;
-+
-+export function getDb(): Database.Database {
-+  if (!db) throw new Error("鏁版嵁搴撴湭鍒濆鍖栵紝璇峰厛璋冪敤 initDb()");
-+  return db;
-+}
-+
-+export function initDb(resourceDir: string): void {
-+  const dbPath = resolve(resourceDir, "nailong.db");
-+  db = new Database(dbPath);
-+  db.pragma("journal_mode = WAL");
-+  db.pragma("foreign_keys = ON");
-+
-+  db.exec(`
-+    CREATE TABLE IF NOT EXISTS nailongs (
-+      id          TEXT PRIMARY KEY,
-+      name        TEXT NOT NULL,
-+      description TEXT,
-+      analysis    TEXT,
-+      file        TEXT NOT NULL,
-+      rarity      TEXT NOT NULL CHECK(rarity IN ('common','rare','epic','legendary'))
-+    );
-+    CREATE TABLE IF NOT EXISTS users (
-+      user_id       TEXT PRIMARY KEY,
-+      coins         INTEGER DEFAULT 0,
-+      sign_in_date  TEXT,
-+      total_draws   INTEGER DEFAULT 0
-+    );
-+    CREATE TABLE IF NOT EXISTS collections (
-+      user_id     TEXT NOT NULL,
-+      nailong_id  TEXT NOT NULL,
-+      obtained_at TEXT NOT NULL,
-+      PRIMARY KEY (user_id, nailong_id),
-+      FOREIGN KEY (nailong_id) REFERENCES nailongs(id)
-+    );
-+    CREATE TABLE IF NOT EXISTS easter_eggs (
-+      user_id  TEXT NOT NULL,
-+      egg_name TEXT NOT NULL,
-+      date     TEXT NOT NULL,
-+      PRIMARY KEY (user_id, egg_name)
-+    );
-+  `);
-+
-+  const count = db.prepare("SELECT COUNT(*) as c FROM nailongs").get() as { c: number };
-+  if (count.c === 0) {
-+    const jsonPath = resolve(resourceDir, "nailong.json");
-+    const data = JSON.parse(readFileSync(jsonPath, "utf-8")) as NaiLongItem[];
-+    const insert = db.prepare(
-+      "INSERT OR IGNORE INTO nailongs (id, name, description, analysis, file, rarity) VALUES (?, ?, ?, ?, ?, ?)"
-+    );
-+    const insertMany = db.transaction((items: NaiLongItem[]) => {
-+      for (const item of items) {
-+        insert.run(item.id, item.name, item.description, item.analysis, item.file, item.rarity);
-+      }
-+    });
-+    insertMany(data);
-+  }
-+}
-+
-+export function getUser(userId: string): UserRecord {
-+  const row = getDb().prepare("SELECT * FROM users WHERE user_id = ?").get(userId) as UserRecord | undefined;
-+  return row ?? { user_id: userId, coins: 0, sign_in_date: null, total_draws: 0 };
-+}
-+
-+export function upsertUser(userId: string, updates: Partial<UserRecord>): void {
-+  const existing = getDb().prepare("SELECT user_id FROM users WHERE user_id = ?").get(userId);
-+  if (existing) {
-+    const sets: string[] = [];
-+    const params: (string | number | null)[] = [];
-+    if (updates.coins !== undefined) { sets.push("coins = ?"); params.push(updates.coins); }
-+    if (updates.sign_in_date !== undefined) { sets.push("sign_in_date = ?"); params.push(updates.sign_in_date); }
-+    if (updates.total_draws !== undefined) { sets.push("total_draws = ?"); params.push(updates.total_draws); }
-+    if (sets.length > 0) {
-+      params.push(userId);
-+      getDb().prepare(`UPDATE users SET ${sets.join(", ")} WHERE user_id = ?`).run(...params);
-+    }
-+  } else {
-+    getDb().prepare(
-+      "INSERT INTO users (user_id, coins, sign_in_date, total_draws) VALUES (?, ?, ?, ?)"
-+    ).run(userId, updates.coins ?? 0, updates.sign_in_date ?? null, updates.total_draws ?? 0);
-+  }
-+}
-+
-+export function getCollections(userId: string): CollectionRecord[] {
-+  return getDb().prepare(
-+    "SELECT * FROM collections WHERE user_id = ? ORDER BY obtained_at"
-+  ).all(userId) as CollectionRecord[];
-+}
-+
-+export function addCollection(userId: string, nailongId: string): void {
++export function upsertMemberProfile(
++  groupId: number,
++  userId: string,
++  nickname: string | null
++): void {
 +  const today = new Date().toISOString().slice(0, 10);
-+  getDb().prepare(
-+    "INSERT OR IGNORE INTO collections (user_id, nailong_id, obtained_at) VALUES (?, ?, ?)"
-+  ).run(userId, nailongId, today);
++  const existing = queryOne<{ user_id: string }>(
++    "SELECT user_id FROM member_profiles WHERE group_id = ? AND user_id = ?",
++    [groupId, userId]
++  );
++  if (existing) {
++    execute(
++      "UPDATE member_profiles SET nickname = ?, last_seen = ? WHERE group_id = ? AND user_id = ?",
++      [nickname, today, groupId, userId]
++    );
++  } else {
++    execute(
++      "INSERT INTO member_profiles (group_id, user_id, nickname, last_seen) VALUES (?, ?, ?, ?)",
++      [groupId, userId, nickname, today]
++    );
++  }
 +}
 +
-+export function getAllNaiLongs(): NaiLongItem[] {
-+  return getDb().prepare("SELECT * FROM nailongs").all() as NaiLongItem[];
++export function getMembersOfGroup(groupId: number): MemberProfile[] {
++  return queryAll<MemberProfile>(
++    "SELECT * FROM member_profiles WHERE group_id = ? ORDER BY last_seen DESC",
++    [groupId]
++  );
 +}
 +
-+export function getNaiLongById(id: string): NaiLongItem | undefined {
-+  return getDb().prepare("SELECT * FROM nailongs WHERE id = ?").get(id) as NaiLongItem | undefined;
++export function updateMemberNotes(
++  groupId: number,
++  userId: string,
++  notes: string
++): void {
++  execute(
++    "UPDATE member_profiles SET notes = ? WHERE group_id = ? AND user_id = ?",
++    [notes, groupId, userId]
++  );
 +}
 +
-+export function isEasterEggCoolingDown(userId: string, eggName: string, date: string): boolean {
-+  const row = getDb().prepare(
-+    "SELECT 1 FROM easter_eggs WHERE user_id = ? AND egg_name = ? AND date = ?"
-+  ).get(userId, eggName, date);
-+  return row !== undefined;
++export function addOrUpdateMemory(
++  groupId: number,
++  date: string,
++  summary: string,
++  keywords: string
++): void {
++  execute(
++    "INSERT OR REPLACE INTO chat_memories (group_id, date, summary, keywords) VALUES (?, ?, ?, ?)",
++    [groupId, date, summary, keywords]
++  );
 +}
 +
-+export function triggerEasterEgg(userId: string, eggName: string, date: string): void {
-+  getDb().prepare(
-+    "INSERT OR IGNORE INTO easter_eggs (user_id, egg_name, date) VALUES (?, ?, ?)"
-+  ).run(userId, eggName, date);
++export function getRecentMemories(groupId: number, limit: number): ChatMemory[] {
++  return queryAll<ChatMemory>(
++    "SELECT * FROM chat_memories WHERE group_id = ? ORDER BY date DESC LIMIT ?",
++    [groupId, limit]
++  );
 +}
 diff --git a/bot/handler.ts b/bot/handler.ts
-index 998b8a8..9016dc0 100644
+index d3d1efe..81efb36 100644
 --- a/bot/handler.ts
 +++ b/bot/handler.ts
-@@ -1,141 +1,143 @@
- import { decodeFromNailong, HA } from "../src/nailong.ts";
+@@ -1,18 +1,19 @@
+ import { decodeFromNailong, encodeToNailong, HA } from "../src/nailong.ts";
  import type { Config } from "./config.ts";
--import type {
--  OneBotClient,
--  GroupMessageEvent,
--  MessageSegment,
--} from "./onebot.ts";
-+import type { OneBotClient, GroupMessageEvent, MessageSegment } from "./onebot.ts";
-+import { handleCommand } from "./commands.ts";
-+import { recordMessage, checkBurst } from "./scheduler.ts";
-+import { addCoins } from "./nailong-party.ts";
-+import { isEasterEggCoolingDown, triggerEasterEgg } from "./database.ts";
+ import type { OneBotClient, GroupMessageEvent, MessageSegment } from "./onebot.ts";
+ import { handleCommand } from "./commands.ts";
+ import { recordMessage, checkBurst } from "./scheduler.ts";
+ import { addCoins } from "./nailong-party.ts";
+ import { isEasterEggCoolingDown, triggerEasterEgg } from "./database.ts";
+-import { chatWithNailong } from "./llm.ts";
++import { chatWithNailong, shouldPopIn } from "./llm.ts";
++import { MessageBuffer, PopInGuard, assembleContext } from "./memory.ts";
  
  const ZWC_RE = /[\u200B-\u200D\u2060]/;
  
  function stripCQCodes(rawMessage: string): string {
-   return rawMessage.replace(/\[CQ:[^\]]+\]/g, "").trim();
+   return rawMessage
+     .replace(/\[CQ:[^\]]+\]/g, "")
+     .replace(/@\S+\s*/g, "")
+     .trim();
  }
  
- function isNailong(text: string): boolean {
-   return text.includes(HA) && ZWC_RE.test(text);
- }
- 
- function extractNailong(rawMessage: string): string | null {
--  if (isNailong(rawMessage)) {
--    return rawMessage;
--  }
-+  if (isNailong(rawMessage)) return rawMessage;
-   return null;
- }
- 
--function findReplySegment(
--  message: MessageSegment[]
--): { id: string } | null {
-+function findReplySegment(message: MessageSegment[]): { id: string } | null {
-   for (const seg of message) {
--    if (seg.type === "reply") {
--      return seg.data as { id: string };
--    }
-+    if (seg.type === "reply") return seg.data as { id: string };
-   }
-   return null;
- }
- 
--function isAtBot(
--  message: MessageSegment[],
--  botQQ: string
--): boolean {
-+function isAtBot(message: MessageSegment[], botQQ: string): boolean {
-   for (const seg of message) {
--    if (seg.type === "at" && seg.data.qq === botQQ) {
--      return true;
--    }
-+    if (seg.type === "at" && seg.data.qq === botQQ) return true;
-   }
-   return false;
- }
- 
- export class MessageCache {
-   private groups = new Map<number, GroupMessageEvent[]>();
-   private maxSize = 10;
- 
-   add(event: GroupMessageEvent): void {
-     const list = this.groups.get(event.group_id) ?? [];
-     list.push(event);
--    if (list.length > this.maxSize) {
--      list.shift();
--    }
-+    if (list.length > this.maxSize) list.shift();
-     this.groups.set(event.group_id, list);
-   }
- 
-   getPrevious(groupId: number): GroupMessageEvent | undefined {
-     const list = this.groups.get(groupId);
+@@ -55,30 +56,38 @@ export class MessageCache {
      if (!list || list.length < 2) return undefined;
      return list[list.length - 2];
    }
@@ -556,1054 +174,416 @@ index 998b8a8..9016dc0 100644
    config: Config
  ): (event: GroupMessageEvent) => Promise<void> {
    const cache = new MessageCache();
++  const buffer = new MessageBuffer();
++  const guard = new PopInGuard();
  
    return async (event: GroupMessageEvent) => {
      cache.add(event);
  
--    if (!isAtBot(event.message, config.botQQ)) return;
-+    const uid = String(event.user_id);
-+    recordMessage(event.group_id, uid);
-+    await checkBurst(client, event.group_id);
-+
-+    if (!isAtBot(event.message, config.botQQ)) {
-+      await checkEasterEggs(client, config, event);
-+      return;
-+    }
-+
-+    const cmdHandled = await handleCommand(client, config, event);
-+    if (cmdHandled) return;
+     const uid = String(event.user_id);
+     recordMessage(event.group_id, uid);
+     await checkBurst(client, event.group_id);
  
-     const nailong = extractNailong(stripCQCodes(event.raw_message));
-     if (nailong) {
--      await replyWithTranslation(
--        client,
--        event.group_id,
--        event.message_id,
--        nailong,
--        config.replies.decodeFail
--      );
-+      await replyWithTranslation(client, event.group_id, event.message_id, nailong, config.replies.decodeFail);
+     if (!isAtBot(event.message, config.botQQ)) {
+       await checkEasterEggs(client, config, event);
++      if (config.llmEnabled) {
++        buffer.add(event.group_id, String(event.user_id), event.raw_message, "");
++        if (buffer.count(event.group_id) >= 5) {
++          await tryPopIn(client, config, event, buffer, guard);
++        }
++      }
        return;
      }
  
-     const replySeg = findReplySegment(event.message);
-     if (replySeg) {
+     const cmdHandled = await handleCommand(client, config, event);
+     if (cmdHandled) return;
+ 
+     const nailong = extractNailong(stripCQCodes(event.raw_message));
+     if (nailong) {
+       await replyWithTranslation(client, event.group_id, event.message_id, nailong, config.replies.decodeFail);
+       return;
+@@ -114,21 +123,26 @@ export function createHandler(
+       await client.sendGroupMessage(event.group_id, [
+         { type: "reply", data: { id: String(event.message_id) } },
+         { type: "text", data: { text: `濂堕緳璇細${encoded}` } },
+       ]);
+       return;
+     }
+ 
+     if (config.llmEnabled) {
        try {
-         const replied = await client.getMessage(Number(replySeg.id));
-         const rn = extractNailong(stripCQCodes(replied.raw_message));
-         if (rn) {
--          await replyWithTranslation(
--            client,
--            event.group_id,
--            Number(replySeg.id),
--            rn,
--            config.replies.decodeFail
--          );
-+          await replyWithTranslation(client, event.group_id, Number(replySeg.id), rn, config.replies.decodeFail);
-           return;
-         }
-       } catch {
-         await replyText(client, event, config.replies.timeout);
+         const cleaned = stripCQCodes(event.raw_message);
+-        const reply = await chatWithNailong(config, cleaned);
++        const ctx = assembleContext(event.group_id);
++        const reply = await chatWithNailong(config, cleaned, {
++          groupId: event.group_id,
++          recentMessages: [],
++          memberContext: ctx,
++        });
+         await client.sendGroupMessage(event.group_id, [
+           { type: "reply", data: { id: String(event.message_id) } },
+           { type: "text", data: { text: reply } },
+         ]);
          return;
+       } catch (err) {
+         console.error("[handler] LLM 璋冪敤澶辫触:", err);
        }
      }
  
-     const prev = cache.getPrevious(event.group_id);
-     if (prev) {
-       const pn = extractNailong(stripCQCodes(prev.raw_message));
-       if (pn) {
--        await replyWithTranslation(
--          client,
--          event.group_id,
--          prev.message_id,
--          pn,
--          config.replies.decodeFail
--        );
-+        await replyWithTranslation(client, event.group_id, prev.message_id, pn, config.replies.decodeFail);
-         return;
-       }
-     }
- 
-     await replyText(client, event, config.replies.notFound);
-   };
+@@ -181,10 +195,58 @@ async function replyWithTranslation(
+ async function replyText(
+   client: OneBotClient,
+   event: GroupMessageEvent,
+   text: string
+ ): Promise<void> {
+   await client.sendGroupMessage(event.group_id, [
+     { type: "reply", data: { id: String(event.message_id) } },
+     { type: "text", data: { text } },
+   ]);
  }
- 
-+async function checkEasterEggs(
++
++async function tryPopIn(
 +  client: OneBotClient,
 +  config: Config,
-+  event: GroupMessageEvent
++  event: GroupMessageEvent,
++  buffer: MessageBuffer,
++  guard: PopInGuard
 +): Promise<void> {
-+  const raw = event.raw_message;
-+  const date = new Date().toISOString().slice(0, 10);
-+  const userId = String(event.user_id);
-+
-+  for (const egg of config.easterEggs) {
-+    if (!raw.includes(egg.keyword)) continue;
-+    if (isEasterEggCoolingDown(userId, egg.keyword, date)) continue;
-+
-+    triggerEasterEgg(userId, egg.keyword, date);
-+    addCoins(userId, egg.coins);
-+    await client.sendGroupMessage(event.group_id, [
-+      { type: "reply", data: { id: String(event.message_id) } },
-+      { type: "text", data: { text: egg.reply } },
-+    ]);
++  if (!guard.canPopIn(event.group_id)) {
++    buffer.clear(event.group_id);
 +    return;
 +  }
-+}
 +
- async function replyWithTranslation(
-   client: OneBotClient,
-   groupId: number,
-   replyToId: number,
-   nailongRaw: string,
-   decodeFailText: string
- ): Promise<void> {
-   let result: string;
-   try {
-     result = decodeFromNailong(nailongRaw);
++  const recent = buffer.getRecent(event.group_id);
++  const context = assembleContext(event.group_id);
++
++  try {
++    const should = await shouldPopIn(config, {
++      groupId: event.group_id,
++      recentMessages: recent,
++      memberContext: context,
++    });
++
++    if (!should) {
++      buffer.clear(event.group_id);
++      return;
++    }
++
++    const lines = recent.map(m => `${m.name}锛?{m.text}`).join("\n");
++    const popPrompt = `鍒氭墠澶у鍦ㄨ亰澶╋細\n${lines}\n\n濂堕緳浣犳潵鍥炲簲涓€涓媬`;
++
++    const reply = await chatWithNailong(config, popPrompt, {
++      groupId: event.group_id,
++      recentMessages: recent,
++      memberContext: context,
++    });
++
++    await client.sendGroupMessage(event.group_id, [
++      { type: "text", data: { text: reply } },
++    ]);
++
++    guard.recordPopIn(event.group_id);
++  } catch (err) {
++    console.error("[pop-in] 鍐掓场澶辫触:", err);
++  }
++
++  buffer.clear(event.group_id);
++}
 diff --git a/bot/index.ts b/bot/index.ts
-index b877e70..73c22f8 100644
+index 96708c3..0b33d09 100644
 --- a/bot/index.ts
 +++ b/bot/index.ts
-@@ -1,17 +1,22 @@
+@@ -1,28 +1,30 @@
  import { loadConfig } from "./config.ts";
  import { OneBotClient } from "./onebot.ts";
  import { createHandler } from "./handler.ts";
-+import { initDb } from "./database.ts";
-+import { startScheduler } from "./scheduler.ts";
+ import { initDb } from "./database.ts";
+ import { startScheduler } from "./scheduler.ts";
++import { startDailySummarizer } from "./memory.ts";
  
  const config = loadConfig();
-+initDb(config.nailongResourceDir);
-+
- const client = new OneBotClient(config);
- client.onGroupMessage(createHandler(client, config));
  
- client
-   .connect()
+ initDb(config.nailongResourceDir)
    .then(() => {
-     console.log(`[bot] NLtranslator Bot 宸插惎鍔?(QQ: ${config.botQQ})`);
-+    startScheduler(client);
+     const client = new OneBotClient(config);
+     client.onGroupMessage(createHandler(client, config));
+ 
+     client
+       .connect()
+       .then(() => {
+         console.log(`[bot] Nailong Bot 宸插惎鍔?(QQ: ${config.botQQ})`);
+         startScheduler(client);
++        startDailySummarizer(config, client);
+       })
+       .catch((err) => {
+         console.error("[bot] 鍚姩澶辫触:", err.message);
+         process.exit(1);
+       });
    })
    .catch((err) => {
-     console.error("[bot] 鍚姩澶辫触:", err.message);
+     console.error("[bot] 鏁版嵁搴撳垵濮嬪寲澶辫触:", err.message);
      process.exit(1);
    });
-diff --git a/bot/nailong-party.ts b/bot/nailong-party.ts
-new file mode 100644
-index 0000000..1912643
---- /dev/null
-+++ b/bot/nailong-party.ts
-@@ -0,0 +1,168 @@
-+import {
-+  getUser,
-+  upsertUser,
-+  getCollections,
-+  addCollection,
-+  getAllNaiLongs,
-+} from "./database.ts";
-+import type { NaiLongItem } from "./database.ts";
-+
-+export const RARITY_WEIGHTS: Record<string, number> = {
-+  common: 60,
-+  rare: 25,
-+  epic: 12,
-+  legendary: 3,
-+};
-+
-+function today(): string {
-+  return new Date().toISOString().slice(0, 10);
+diff --git a/bot/llm.ts b/bot/llm.ts
+index da5aa1c..08d391c 100644
+--- a/bot/llm.ts
++++ b/bot/llm.ts
+@@ -1,13 +1,19 @@
+ import { readFileSync, existsSync } from "node:fs";
+ import type { Config } from "./config.ts";
+ 
++export interface ChatContext {
++  groupId: number;
++  recentMessages: { name: string; text: string }[];
++  memberContext: string;
 +}
 +
-+export function signIn(userId: string): {
-+  success: boolean;
-+  message: string;
-+  addedCoins: number;
-+  balance: number;
-+} {
-+  const td = today();
-+  const user = getUser(userId);
-+  if (user.sign_in_date === td) {
-+    return {
-+      success: false,
-+      message: "浣犱粖澶╁凡缁忕鍒拌繃浜唦",
-+      addedCoins: 0,
-+      balance: user.coins,
-+    };
-+  }
-+  const newCoins = user.coins + 10;
-+  upsertUser(userId, { coins: newCoins, sign_in_date: td });
-+  return {
-+    success: true,
-+    message: `鉁?绛惧埌鎴愬姛锛?10濂堕緳甯?| 浣欓锛?{newCoins}甯乣,
-+    addedCoins: 10,
-+    balance: newCoins,
-+  };
-+}
-+
-+export function drawNaiLong(userId: string): {
-+  success: boolean;
-+  item?: NaiLongItem;
-+  message: string;
-+  cost: number;
-+  balance: number;
-+  isNew: boolean;
-+} {
-+  const user = getUser(userId);
-+  if (user.coins < 10) {
-+    return { success: false, message: "濂堕緳甯佷笉瓒筹紒闇€瑕?10甯侊紝褰撳墠锛? + user.coins + "甯?, cost: 0, balance: user.coins, isNew: false };
-+  }
-+
-+  const all = getAllNaiLongs();
-+  if (all.length === 0) {
-+    return { success: false, message: "鍥鹃壌杩樻病鏈夊ザ榫欙紝璇疯仈绯荤鐞嗗憳娣诲姞锛?, cost: 0, balance: user.coins, isNew: false };
-+  }
-+
-+  const owned = getCollections(userId);
-+  const ownedIds = new Set(owned.map(r => r.nailong_id));
-+  const candidates = all.filter(item => !ownedIds.has(item.id));
-+
-+  if (candidates.length === 0) {
-+    return {
-+      success: false,
-+      message: `浣犲凡缁忔姄鍒板叏閮ㄧ殑濂堕緳浜嗭紒锛?{all.length}/${all.length}锛塦,
-+      cost: 0,
-+      balance: user.coins,
-+      isNew: false,
-+    };
-+  }
-+
-+  const item = weightedRandom(candidates);
-+  const isNew = !ownedIds.has(item.id);
-+  if (isNew) {
-+    addCollection(userId, item.id);
-+  }
-+
-+  const newCoins = user.coins - 10;
-+  const newDraws = user.total_draws + 1;
-+  upsertUser(userId, { coins: newCoins, total_draws: newDraws });
-+
-+  const stars = "猸?.repeat(rarityStars(item.rarity));
-+  const dupeLabel = isNew ? "" : "锛堝凡鎷ユ湁锛?;
-+  const msg = `鎴戞槸銆?{item.name}銆?{dupeLabel}\n${item.description}\n${item.analysis}\n锛?{stars} 娑堣€?10 甯?| 浣欓 ${newCoins} 甯侊級`;
-+
-+  return { success: true, item, message: msg, cost: 10, balance: newCoins, isNew };
-+}
-+
-+export function getMyCollections(userId: string): {
-+  items: { name: string; rarity: string }[];
-+  owned: number;
-+  total: number;
-+} {
-+  const all = getAllNaiLongs();
-+  const owned = getCollections(userId);
-+  const ownedIds = new Set(owned.map(r => r.nailong_id));
-+  const items = all
-+    .filter(item => ownedIds.has(item.id))
-+    .map(item => ({ name: item.name, rarity: item.rarity }));
-+  return { items, owned: items.length, total: all.length };
-+}
-+
-+export function getFullDex(userId: string): {
-+  items: { name: string; rarity: string; isOwned: boolean }[];
-+  total: number;
-+} {
-+  const all = getAllNaiLongs();
-+  const owned = getCollections(userId);
-+  const ownedIds = new Set(owned.map(r => r.nailong_id));
-+  const items = all.map(item => ({
-+    name: item.name,
-+    rarity: item.rarity,
-+    isOwned: ownedIds.has(item.id),
-+  }));
-+  return { items, total: all.length };
-+}
-+
-+export function getRandomNaiLong(): NaiLongItem | undefined {
-+  const all = getAllNaiLongs();
-+  if (all.length === 0) return undefined;
-+  return all[Math.floor(Math.random() * all.length)];
-+}
-+
-+export function getBalance(userId: string): {
-+  coins: number;
-+  signInDays: number;
-+  totalDraws: number;
-+} {
-+  const user = getUser(userId);
-+  const ownedCount = getCollections(userId).length;
-+  return { coins: user.coins, signInDays: ownedCount, totalDraws: user.total_draws };
-+}
-+
-+export function addCoins(userId: string, amount: number): number {
-+  const user = getUser(userId);
-+  const newCoins = user.coins + amount;
-+  upsertUser(userId, { coins: newCoins });
-+  return newCoins;
-+}
-+
-+function rarityStars(rarity: string): number {
-+  switch (rarity) {
-+    case "legendary": return 4;
-+    case "epic": return 3;
-+    case "rare": return 2;
-+    default: return 1;
-+  }
-+}
-+
-+function weightedRandom(items: NaiLongItem[]): NaiLongItem {
-+  const weighted: NaiLongItem[] = [];
-+  for (const item of items) {
-+    const w = RARITY_WEIGHTS[item.rarity] ?? 60;
-+    for (let i = 0; i < w; i++) weighted.push(item);
-+  }
-+  return weighted[Math.floor(Math.random() * weighted.length)];
-+}
-+
-+export function imageFilePath(item: NaiLongItem, resourceDir: string): string {
-+  return resourceDir + "/images/" + item.file;
-+}
-diff --git a/bot/scheduler.ts b/bot/scheduler.ts
-new file mode 100644
-index 0000000..de16b1e
---- /dev/null
-+++ b/bot/scheduler.ts
-@@ -0,0 +1,122 @@
-+import { addCoins } from "./nailong-party.ts";
-+import type { OneBotClient, MessageSegment } from "./onebot.ts";
-+
-+interface HourlyChatStats {
-+  counts: Map<string, number>;
-+  timestamp: number;
-+}
-+
-+interface BurstState {
-+  count: number;
-+  speakers: Set<string>;
-+  startTime: number;
-+  cooldownUntil: number;
-+}
-+
-+const hourlyStats = new Map<number, HourlyChatStats>();
-+const burstStates = new Map<number, BurstState>();
-+
-+const BURST_WINDOW_MS = 10 * 60 * 1000;
-+const BURST_THRESHOLD = 50;
-+const BURST_COOLDOWN_MS = 30 * 60 * 1000;
-+
-+export function recordMessage(groupId: number, userId: string): void {
-+  const now = Date.now();
-+
-+  let stats = hourlyStats.get(groupId);
-+  if (!stats) {
-+    stats = { counts: new Map(), timestamp: now };
-+    hourlyStats.set(groupId, stats);
-+  }
-+  stats.counts.set(userId, (stats.counts.get(userId) ?? 0) + 1);
-+
-+  let burst = burstStates.get(groupId);
-+  if (!burst) {
-+    burst = { count: 0, speakers: new Set(), startTime: now, cooldownUntil: 0 };
-+    burstStates.set(groupId, burst);
-+  }
-+
-+  if (now - burst.startTime > BURST_WINDOW_MS) {
-+    burst.count = 0;
-+    burst.speakers = new Set();
-+    burst.startTime = now;
-+  }
-+
-+  burst.count++;
-+  burst.speakers.add(userId);
-+}
-+
-+export async function checkBurst(
-+  client: OneBotClient,
-+  groupId: number
-+): Promise<void> {
-+  const burst = burstStates.get(groupId);
-+  if (!burst) return;
-+
-+  const now = Date.now();
-+  if (now < burst.cooldownUntil) return;
-+  if (burst.count < BURST_THRESHOLD) return;
-+  if (now - burst.startTime > BURST_WINDOW_MS) return;
-+
-+  burst.cooldownUntil = now + BURST_COOLDOWN_MS;
-+
-+  const segments: MessageSegment[] = [
-+    { type: "text", data: { text: "浣犱滑閮芥槸濂堕緳锛?1濂堕緳甯? } },
-+  ];
-+  for (const uid of burst.speakers) {
-+    addCoins(uid, 1);
-+    segments.push({ type: "at", data: { qq: uid } });
-+  }
-+
-+  try {
-+    await client.sendGroupMessage(groupId, segments);
-+  } catch (e) {
-+    console.error("[scheduler] 鐖嗗彂娑堟伅鍙戦€佸け璐?", e);
-+  }
-+
-+  burst.count = 0;
-+  burst.speakers = new Set();
-+  burst.startTime = now;
-+}
-+
-+async function settleHourly(client: OneBotClient): Promise<void> {
-+  for (const [groupId, stats] of hourlyStats) {
-+    const speakers = Array.from(stats.counts.entries()).sort((a, b) => b[1] - a[1]);
-+    hourlyStats.delete(groupId);
-+
-+    if (speakers.length === 0) {
-+      try {
-+        await client.sendGroupMessage(groupId, [
-+          { type: "text", data: { text: "鍝硷紒閮戒笉璇磋瘽 濂堕緳濂芥棤鑱? } },
-+        ]);
-+      } catch (e) {
-+        console.error("[scheduler] 绌洪棽娑堟伅鍙戦€佸け璐?", e);
-+      }
-+      continue;
-+    }
-+
-+    const [topUserId] = speakers[0];
-+    addCoins(topUserId, 1);
-+    try {
-+      await client.sendGroupMessage(groupId, [
-+        { type: "text", data: { text: "鍢垮樋锛屼綘鏄ザ榫欙紒" } },
-+        { type: "at", data: { qq: topUserId } },
-+        { type: "text", data: { text: " +1濂堕緳甯? } },
-+      ]);
-+    } catch (e) {
-+      console.error("[scheduler] 缁撶畻娑堟伅鍙戦€佸け璐?", e);
-+    }
-+  }
-+}
-+
-+export function startScheduler(client: OneBotClient): void {
-+  const now = new Date();
-+  const msToNextHour = (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000 - now.getMilliseconds();
-+
-+  setTimeout(() => {
-+    settleHourly(client);
-+    setInterval(() => settleHourly(client), 60 * 60 * 1000);
-+  }, msToNextHour);
-+
-+  console.log("[scheduler] 姣忓皬鏃剁粨绠楀櫒宸插惎鍔紝涓嬫缁撶畻:", new Date(Date.now() + msToNextHour).toLocaleTimeString());
-+}
-diff --git a/package-lock.json b/package-lock.json
-index 13ee79a..640ed30 100644
---- a/package-lock.json
-+++ b/package-lock.json
-@@ -1,64 +1,501 @@
- {
-   "name": "nailong-bot",
-   "version": "0.0.0",
-   "lockfileVersion": 3,
-   "requires": true,
-   "packages": {
-     "": {
-       "name": "nailong-bot",
-       "version": "0.0.0",
-       "dependencies": {
-+        "better-sqlite3": "^11.7.0",
-         "ws": "^8.18.0"
-       },
-       "devDependencies": {
-+        "@types/better-sqlite3": "^7.6.12",
-         "@types/node": "^26.1.2",
-         "@types/ws": "^8.18.1",
-         "tsx": "^4.19.0",
-         "typescript": "~5.6.2"
-       }
-     },
-+    "node_modules/@types/better-sqlite3": {
-+      "version": "7.6.13",
-+      "resolved": "https://registry.npmjs.org/@types/better-sqlite3/-/better-sqlite3-7.6.13.tgz",
-+      "integrity": "sha512-NMv9ASNARoKksWtsq/SHakpYAYnhBrQgGD8zkLYk/jaK8jUGn08CfEdTRgYhMypUQAfzSP8W6gNLe0q19/t4VA==",
-+      "dev": true,
-+      "license": "MIT",
-+      "dependencies": {
-+        "@types/node": "*"
-+      }
-+    },
-     "node_modules/@types/node": {
-       "version": "26.1.2",
-       "resolved": "https://registry.npmjs.org/@types/node/-/node-26.1.2.tgz",
-       "integrity": "sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg==",
-       "dev": true,
-       "license": "MIT",
-       "dependencies": {
-         "undici-types": "~8.3.0"
-       }
-     },
-     "node_modules/@types/ws": {
-       "version": "8.18.1",
-       "resolved": "https://registry.npmjs.org/@types/ws/-/ws-8.18.1.tgz",
-       "integrity": "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==",
-       "dev": true,
-       "license": "MIT",
-       "dependencies": {
-         "@types/node": "*"
-       }
-     },
-+    "node_modules/base64-js": {
-+      "version": "1.5.1",
-+      "resolved": "https://registry.npmjs.org/base64-js/-/base64-js-1.5.1.tgz",
-+      "integrity": "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==",
-+      "funding": [
-+        {
-+          "type": "github",
-+          "url": "https://github.com/sponsors/feross"
-+        },
-+        {
-+          "type": "patreon",
-+          "url": "https://www.patreon.com/feross"
-+        },
-+        {
-+          "type": "consulting",
-+          "url": "https://feross.org/support"
-+        }
-+      ],
-+      "license": "MIT"
-+    },
-+    "node_modules/better-sqlite3": {
-+      "version": "11.10.0",
-+      "resolved": "https://registry.npmjs.org/better-sqlite3/-/better-sqlite3-11.10.0.tgz",
-+      "integrity": "sha512-EwhOpyXiOEL/lKzHz9AW1msWFNzGc/z+LzeB3/jnFJpxu+th2yqvzsSWas1v9jgs9+xiXJcD5A8CJxAG2TaghQ==",
-+      "hasInstallScript": true,
-+      "license": "MIT",
-+      "dependencies": {
-+        "bindings": "^1.5.0",
-+        "prebuild-install": "^7.1.1"
-+      }
-+    },
-+    "node_modules/bindings": {
-+      "version": "1.5.0",
-+      "resolved": "https://registry.npmjs.org/bindings/-/bindings-1.5.0.tgz",
-+      "integrity": "sha512-p2q/t/mhvuOj/UeLlV6566GD/guowlr0hHxClI0W9m7MWYkL1F0hLo+0Aexs9HSPCtR1SXQ0TD3MMKrXZajbiQ==",
-+      "license": "MIT",
-+      "dependencies": {
-+        "file-uri-to-path": "1.0.0"
-+      }
-+    },
-+    "node_modules/bl": {
-+      "version": "4.1.0",
-+      "resolved": "https://registry.npmjs.org/bl/-/bl-4.1.0.tgz",
-+      "integrity": "sha512-1W07cM9gS6DcLperZfFSj+bWLtaPGSOHWhPiGzXmvVJbRLdG82sH/Kn8EtW1VqWVA54AKf2h5k5BbnIbwF3h6w==",
-+      "license": "MIT",
-+      "dependencies": {
-+        "buffer": "^5.5.0",
-+        "inherits": "^2.0.4",
-+        "readable-stream": "^3.4.0"
-+      }
-+    },
-+    "node_modules/buffer": {
-+      "version": "5.7.1",
-+      "resolved": "https://registry.npmjs.org/buffer/-/buffer-5.7.1.tgz",
-+      "integrity": "sha512-EHcyIPBQ4BSGlvjB16k5KgAJ27CIsHY/2JBmCRReo48y9rQ3MaUzWX3KVlBa4U7MyX02HdVj0K7C3WaB3ju7FQ==",
-+      "funding": [
-+        {
-+          "type": "github",
-+          "url": "https://github.com/sponsors/feross"
-+        },
-+        {
-+          "type": "patreon",
-+          "url": "https://www.patreon.com/feross"
-+        },
-+        {
-+          "type": "consulting",
-+          "url": "https://feross.org/support"
-+        }
-+      ],
-+      "license": "MIT",
-+      "dependencies": {
-+        "base64-js": "^1.3.1",
-+        "ieee754": "^1.1.13"
-+      }
-+    },
-+    "node_modules/chownr": {
-+      "version": "1.1.4",
-+      "resolved": "https://registry.npmjs.org/chownr/-/chownr-1.1.4.tgz",
-+      "integrity": "sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg==",
-+      "license": "ISC"
-+    },
-+    "node_modules/decompress-response": {
-+      "version": "6.0.0",
-+      "resolved": "https://registry.npmjs.org/decompress-response/-/decompress-response-6.0.0.tgz",
-+      "integrity": "sha512-aW35yZM6Bb/4oJlZncMH2LCoZtJXTRxES17vE3hoRiowU2kWHaJKFkSBDnDR+cm9J+9QhXmREyIfv0pji9ejCQ==",
-+      "license": "MIT",
-+      "dependencies": {
-+        "mimic-response": "^3.1.0"
-+      },
-+      "engines": {
-+        "node": ">=10"
-+      },
-+      "funding": {
-+        "url": "https://github.com/sponsors/sindresorhus"
-+      }
-+    },
-+    "node_modules/deep-extend": {
-+      "version": "0.6.0",
-+      "resolved": "https://registry.npmjs.org/deep-extend/-/deep-extend-0.6.0.tgz",
-+      "integrity": "sha512-LOHxIOaPYdHlJRtCQfDIVZtfw/ufM8+rVj649RIHzcm/vGwQRXFt6OPqIFWsm2XEMrNIEtWR64sY1LEKD2vAOA==",
-+      "license": "MIT",
-+      "engines": {
-+        "node": ">=4.0.0"
-+      }
-+    },
-+    "node_modules/detect-libc": {
-+      "version": "2.1.2",
-+      "resolved": "https://registry.npmjs.org/detect-libc/-/detect-libc-2.1.2.tgz",
-+      "integrity": "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==",
-+      "license": "Apache-2.0",
-+      "engines": {
-+        "node": ">=8"
-+      }
-+    },
-+    "node_modules/end-of-stream": {
-+      "version": "1.4.5",
-+      "resolved": "https://registry.npmjs.org/end-of-stream/-/end-of-stream-1.4.5.tgz",
-+      "integrity": "sha512-ooEGc6HP26xXq/N+GCGOT0JKCLDGrq2bQUZrQ7gyrJiZANJ/8YDTxTpQBXGMn+WbIQXNVpyWymm7KYVICQnyOg==",
-+      "license": "MIT",
-+      "dependencies": {
-+        "once": "^1.4.0"
-+      }
-+    },
-+    "node_modules/expand-template": {
-+      "version": "2.0.3",
-+      "resolved": "https://registry.npmjs.org/expand-template/-/expand-template-2.0.3.tgz",
-+      "integrity": "sha512-XYfuKMvj4O35f/pOXLObndIRvyQ+/+6AhODh+OKWj9S9498pHHn/IMszH+gt0fBCRWMNfk1ZSp5x3AifmnI2vg==",
-+      "license": "(MIT OR WTFPL)",
-+      "engines": {
-+        "node": ">=6"
-+      }
-+    },
-+    "node_modules/file-uri-to-path": {
-+      "version": "1.0.0",
-+      "resolved": "https://registry.npmjs.org/file-uri-to-path/-/file-uri-to-path-1.0.0.tgz",
-+      "integrity": "sha512-0Zt+s3L7Vf1biwWZ29aARiVYLx7iMGnEUl9x33fbB/j3jR81u/O2LbqK+Bm1CDSNDKVtJ/YjwY7TUd5SkeLQLw==",
-+      "license": "MIT"
-+    },
-+    "node_modules/fs-constants": {
-+      "version": "1.0.0",
-+      "resolved": "https://registry.npmjs.org/fs-constants/-/fs-constants-1.0.0.tgz",
-+      "integrity": "sha512-y6OAwoSIf7FyjMIv94u+b5rdheZEjzR63GTyZJm5qh4Bi+2YgwLCcI/fPFZkL5PSixOt6ZNKm+w+Hfp/Bciwow==",
-+      "license": "MIT"
-+    },
-     "node_modules/fsevents": {
-       "version": "2.3.3",
-       "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
-       "integrity": "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
-       "dev": true,
-       "hasInstallScript": true,
-       "license": "MIT",
-       "optional": true,
-       "os": [
-         "darwin"
-       ],
-       "engines": {
-         "node": "^8.16.0 || ^10.6.0 || >=11.0.0"
-       }
-     },
-+    "node_modules/github-from-package": {
-+      "version": "0.0.0",
-+      "resolved": "https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz",
-+      "integrity": "sha512-SyHy3T1v2NUXn29OsWdxmK6RwHD+vkj3v8en8AOBZ1wBQ/hCAQ5bAQTD02kW4W9tUp/3Qh6J8r9EvntiyCmOOw==",
-+      "license": "MIT"
-+    },
-+    "node_modules/ieee754": {
-+      "version": "1.2.1",
-+      "resolved": "https://registry.npmjs.org/ieee754/-/ieee754-1.2.1.tgz",
-+      "integrity": "sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==",
-+      "funding": [
-+        {
-+          "type": "github",
-+          "url": "https://github.com/sponsors/feross"
-+        },
-+        {
-+          "type": "patreon",
-+          "url": "https://www.patreon.com/feross"
-+        },
-+        {
-+          "type": "consulting",
-+          "url": "https://feross.org/support"
-+        }
-+      ],
-+      "license": "BSD-3-Clause"
-+    },
-+    "node_modules/inherits": {
-+      "version": "2.0.4",
-+      "resolved": "https://registry.npmjs.org/inherits/-/inherits-2.0.4.tgz",
-+      "integrity": "sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==",
-+      "license": "ISC"
-+    },
-+    "node_modules/ini": {
-+      "version": "1.3.8",
-+      "resolved": "https://registry.npmjs.org/ini/-/ini-1.3.8.tgz",
-+      "integrity": "sha512-JV/yugV2uzW5iMRSiZAyDtQd+nxtUnjeLt0acNdw98kKLrvuRVyB80tsREOE7yvGVgalhZ6RNXCmEHkUKBKxew==",
-+      "license": "ISC"
-+    },
-+    "node_modules/mimic-response": {
-+      "version": "3.1.0",
-+      "resolved": "https://registry.npmjs.org/mimic-response/-/mimic-response-3.1.0.tgz",
-+      "integrity": "sha512-z0yWI+4FDrrweS8Zmt4Ej5HdJmky15+L2e6Wgn3+iK5fWzb6T3fhNFq2+MeTRb064c6Wr4N/wv0DzQTjNzHNGQ==",
-+      "license": "MIT",
-+      "engines": {
-+        "node": ">=10"
-+      },
-+      "funding": {
-+        "url": "https://github.com/sponsors/sindresorhus"
-+      }
-+    },
-+    "node_modules/minimist": {
-+      "version": "1.2.8",
-+      "resolved": "https://registry.npmjs.org/minimist/-/minimist-1.2.8.tgz",
-+      "integrity": "sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==",
-+      "license": "MIT",
-+      "funding": {
-+        "url": "https://github.com/sponsors/ljharb"
-+      }
-+    },
-+    "node_modules/mkdirp-classic": {
-+      "version": "0.5.3",
-+      "resolved": "https://registry.npmjs.org/mkdirp-classic/-/mkdirp-classic-0.5.3.tgz",
-+      "integrity": "sha512-gKLcREMhtuZRwRAfqP3RFW+TK4JqApVBtOIftVgjuABpAtpxhPGaDcfvbhNvD0B8iD1oUr/txX35NjcaY6Ns/A==",
-+      "license": "MIT"
-+    },
-+    "node_modules/napi-build-utils": {
-+      "version": "2.0.0",
-+      "resolved": "https://registry.npmjs.org/napi-build-utils/-/napi-build-utils-2.0.0.tgz",
-+      "integrity": "sha512-GEbrYkbfF7MoNaoh2iGG84Mnf/WZfB0GdGEsM8wz7Expx/LlWf5U8t9nvJKXSp3qr5IsEbK04cBGhol/KwOsWA==",
-+      "license": "MIT"
-+    },
-+    "node_modules/node-abi": {
-+      "version": "3.94.0",
-+      "resolved": "https://registry.npmjs.org/node-abi/-/node-abi-3.94.0.tgz",
-+      "integrity": "sha512-W5ZNO5KRPB5TkYmGVD9F6YqhsglXJzE6etpbmT+f6EQElhiX/UTG551cnsRGvLG3fyZEg9HwaDmNmj5nwJ4z9g==",
-+      "license": "MIT",
-+      "dependencies": {
-+        "semver": "^7.3.5"
-+      },
-+      "engines": {
-+        "node": ">=10"
-+      }
-+    },
-+    "node_modules/once": {
-+      "version": "1.4.0",
-+      "resolved": "https://registry.npmjs.org/once/-/once-1.4.0.tgz",
-+      "integrity": "sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==",
-+      "license": "ISC",
-+      "dependencies": {
-+        "wrappy": "1"
-+      }
-+    },
-+    "node_modules/prebuild-install": {
-+      "version": "7.1.3",
-+      "resolved": "https://registry.npmjs.org/prebuild-install/-/prebuild-install-7.1.3.tgz",
-+      "integrity": "sha512-8Mf2cbV7x1cXPUILADGI3wuhfqWvtiLA1iclTDbFRZkgRQS0NqsPZphna9V+HyTEadheuPmjaJMsbzKQFOzLug==",
-+      "deprecated": "No longer maintained. Please contact the author of the relevant native addon; alternatives are available.",
-+      "license": "MIT",
-+      "dependencies": {
-+        "detect-libc": "^2.0.0",
-+        "expand-template": "^2.0.3",
-+        "github-from-package": "0.0.0",
-+        "minimist": "^1.2.3",
-+        "mkdirp-classic": "^0.5.3",
-+        "napi-build-utils": "^2.0.0",
-+        "node-abi": "^3.3.0",
-+        "pump": "^3.0.0",
-+        "rc": "^1.2.7",
-+        "simple-get": "^4.0.0",
-+        "tar-fs": "^2.0.0",
-+        "tunnel-agent": "^0.6.0"
-+      },
-+      "bin": {
-+        "prebuild-install": "bin.js"
-+      },
-+      "engines": {
-+        "node": ">=10"
-+      }
-+    },
-+    "node_modules/pump": {
-+      "version": "3.0.4",
-+      "resolved": "https://registry.npmjs.org/pump/-/pump-3.0.4.tgz",
-+      "integrity": "sha512-VS7sjc6KR7e1ukRFhQSY5LM2uBWAUPiOPa/A3mkKmiMwSmRFUITt0xuj+/lesgnCv+dPIEYlkzrcyXgquIHMcA==",
-+      "license": "MIT",
-+      "dependencies": {
-+        "end-of-stream": "^1.1.0",
-+        "once": "^1.3.1"
-+      }
-+    },
-+    "node_modules/rc": {
-+      "version": "1.2.8",
-+      "resolved": "https://registry.npmjs.org/rc/-/rc-1.2.8.tgz",
-+      "integrity": "sha512-y3bGgqKj3QBdxLbLkomlohkvsA8gdAiUQlSBJnBhfn+BPxg4bc62d8TcBW15wavDfgexCgccckhcZvywyQYPOw==",
-+      "license": "(BSD-2-Clause OR MIT OR Apache-2.0)",
-+      "dependencies": {
-+        "deep-extend": "^0.6.0",
-+        "ini": "~1.3.0",
-+        "minimist": "^1.2.0",
-+        "strip-json-comments": "~2.0.1"
-+      },
-+      "bin": {
-+        "rc": "cli.js"
-+      }
-+    },
-+    "node_modules/readable-stream": {
-+      "version": "3.6.2",
-+      "resolved": "https://registry.npmjs.org/readable-stream/-/readable-stream-3.6.2.tgz",
-+      "integrity": "sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA==",
-+      "license": "MIT",
-+      "dependencies": {
-+        "inherits": "^2.0.3",
-+        "string_decoder": "^1.1.1",
-+        "util-deprecate": "^1.0.1"
-+      },
-+      "engines": {
-+        "node": ">= 6"
-+      }
-+    },
-+    "node_modules/safe-buffer": {
-+      "version": "5.2.1",
-+      "resolved": "https://registry.npmjs.org/safe-buffer/-/safe-buffer-5.2.1.tgz",
-+      "integrity": "sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==",
-+      "funding": [
-+        {
-+          "type": "github",
-+          "url": "https://github.com/sponsors/feross"
-+        },
-+        {
-+          "type": "patreon",
-+          "url": "https://www.patreon.com/feross"
-+        },
-+        {
-+          "type": "consulting",
-+          "url": "https://feross.org/support"
-+        }
-+      ],
-+      "license": "MIT"
-+    },
-+    "node_modules/semver": {
-+      "version": "7.8.5",
-+      "resolved": "https://registry.npmjs.org/semver/-/semver-7.8.5.tgz",
-+      "integrity": "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==",
-+      "license": "ISC",
-+      "bin": {
-+        "semver": "bin/semver.js"
-+      },
-+      "engines": {
-+        "node": ">=10"
-+      }
-+    },
-+    "node_modules/simple-concat": {
-+      "version": "1.0.1",
-+      "resolved": "https://registry.npmjs.org/simple-concat/-/simple-concat-1.0.1.tgz",
-+      "integrity": "sha512-cSFtAPtRhljv69IK0hTVZQ+OfE9nePi/rtJmw5UjHeVyVroEqJXP1sFztKUy1qU+xvz3u/sfYJLa947b7nAN2Q==",
-+      "funding": [
-+        {
-+          "type": "github",
-+          "url": "https://github.com/sponsors/feross"
-+        },
-+        {
-+          "type": "patreon",
-+          "url": "https://www.patreon.com/feross"
-+        },
-+        {
-+          "type": "consulting",
-+          "url": "https://feross.org/support"
-+        }
-+      ],
-+      "license": "MIT"
-+    },
-+    "node_modules/simple-get": {
-+      "version": "4.0.1",
-+      "resolved": "https://registry.npmjs.org/simple-get/-/simple-get-4.0.1.tgz",
-+      "integrity": "sha512-brv7p5WgH0jmQJr1ZDDfKDOSeWWg+OVypG99A/5vYGPqJ6pxiaHLy8nxtFjBA7oMa01ebA9gfh1uMCFqOuXxvA==",
-+      "funding": [
-+        {
-+          "type": "github",
-+          "url": "https://github.com/sponsors/feross"
-+        },
-+        {
-+          "type": "patreon",
-+          "url": "https://www.patreon.com/feross"
-+        },
-+        {
-+          "type": "consulting",
-+          "url": "https://feross.org/support"
-+        }
-+      ],
-+      "license": "MIT",
-+      "dependencies": {
-+        "decompress-response": "^6.0.0",
-+        "once": "^1.3.1",
-+        "simple-concat": "^1.0.0"
-+      }
-+    },
-+    "node_modules/string_decoder": {
-+      "version": "1.3.0",
-+      "resolved": "https://registry.npmjs.org/string_decoder/-/string_decoder-1.3.0.tgz",
-+      "integrity": "sha512-hkRX8U1WjJFd8LsDJ2yQ/wWWxaopEsABU1XfkM8A+j0+85JAGppt16cr1Whg6KIbb4okU6Mql6BOj+uup/wKeA==",
-+      "license": "MIT",
-+      "dependencies": {
-+        "safe-buffer": "~5.2.0"
-+      }
-+    },
-+    "node_modules/strip-json-comments": {
-+      "version": "2.0.1",
-+      "resolved": "https://registry.npmjs.org/strip-json-comments/-/strip-json-comments-2.0.1.tgz",
-+      "integrity": "sha512-4gB8na07fecVVkOI6Rs4e7T6NOTki5EmL7TUduTs6bu3EdnSycntVJ4re8kgZA+wx9IueI2Y11bfbgwtzuE0KQ==",
-+      "license": "MIT",
-+      "engines": {
-+        "node": ">=0.10.0"
-+      }
-+    },
-+    "node_modules/tar-fs": {
-+      "version": "2.1.5",
-+      "resolved": "https://registry.npmjs.org/tar-fs/-/tar-fs-2.1.5.tgz",
-+      "integrity": "sha512-OboTd8mmMhZDNPV+UjQcK9yKAatXu2aJ+r1w4im1Otd4M4fl2hwvdoXUxIYHFTHWK/3y3FarBP70v3vwmGlOxw==",
-+      "license": "MIT",
-+      "dependencies": {
-+        "chownr": "^1.1.1",
-+        "mkdirp-classic": "^0.5.2",
-+        "pump": "^3.0.0",
-+        "tar-stream": "^2.1.4"
-+      }
-+    },
-+    "node_modules/tar-stream": {
-+      "version": "2.2.0",
-+      "resolved": "https://registry.npmjs.org/tar-stream/-/tar-stream-2.2.0.tgz",
-+      "integrity": "sha512-ujeqbceABgwMZxEJnk2HDY2DlnUZ+9oEcb1KzTVfYHio0UE6dG71n60d8D2I4qNvleWrrXpmjpt7vZeF1LnMZQ==",
-+      "license": "MIT",
-+      "dependencies": {
-+        "bl": "^4.0.3",
-+        "end-of-stream": "^1.4.1",
-+        "fs-constants": "^1.0.0",
-+        "inherits": "^2.0.3",
-+        "readable-stream": "^3.1.1"
-+      },
-+      "engines": {
-+        "node": ">=6"
-+      }
-+    },
-     "node_modules/tsx": {
-       "version": "4.23.9",
-       "resolved": "https://registry.npmjs.org/tsx/-/tsx-4.23.9.tgz",
-       "integrity": "sha512-6q8uTORRGauQVjqMQnKUucLFoeXZAfw6zKvG35GLbdKWbLdeOtZ3H4mhyA5mxuUd2o2cRTskhj59nLLQseUvUw==",
-       "dev": true,
-       "license": "MIT",
-       "dependencies": {
-         "esbuild": "~0.28.0"
-       },
-       "bin": {
-@@ -548,20 +985,32 @@
-         "@esbuild/netbsd-x64": "0.28.1",
-         "@esbuild/openbsd-arm64": "0.28.1",
-         "@esbuild/openbsd-x64": "0.28.1",
-         "@esbuild/openharmony-arm64": "0.28.1",
-         "@esbuild/sunos-x64": "0.28.1",
-         "@esbuild/win32-arm64": "0.28.1",
-         "@esbuild/win32-ia32": "0.28.1",
-         "@esbuild/win32-x64": "0.28.1"
-       }
-     },
-+    "node_modules/tunnel-agent": {
-+      "version": "0.6.0",
-+      "resolved": "https://registry.npmjs.org/tunnel-agent/-/tunnel-agent-0.6.0.tgz",
-+      "integrity": "sha512-McnNiV1l8RYeY8tBgEpuodCC1mLUdbSN+CYBL7kJsJNInOP8UjDDEwdk6Mw60vdLLrr5NHKZhMAOSrR2NZuQ+w==",
-+      "license": "Apache-2.0",
-+      "dependencies": {
-+        "safe-buffer": "^5.0.1"
-+      },
-+      "engines": {
-+        "node": "*"
-+      }
-+    },
-     "node_modules/typescript": {
-       "version": "5.6.3",
-       "resolved": "https://registry.npmjs.org/typescript/-/typescript-5.6.3.tgz",
-       "integrity": "sha512-hjcS1mhfuyi4WW8IWtjP7brDrG2cuDZukyrYrSauoXGNgx0S7zceP07adYkJycEr56BOUTNPzbInooiN3fn1qw==",
-       "dev": true,
-       "license": "Apache-2.0",
-       "bin": {
-         "tsc": "bin/tsc",
-         "tsserver": "bin/tsserver"
-       },
-@@ -569,20 +1018,32 @@
-         "node": ">=14.17"
-       }
-     },
-     "node_modules/undici-types": {
-       "version": "8.3.0",
-       "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-8.3.0.tgz",
-       "integrity": "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==",
-       "dev": true,
-       "license": "MIT"
-     },
-+    "node_modules/util-deprecate": {
-+      "version": "1.0.2",
-+      "resolved": "https://registry.npmjs.org/util-deprecate/-/util-deprecate-1.0.2.tgz",
-+      "integrity": "sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==",
-+      "license": "MIT"
-+    },
-+    "node_modules/wrappy": {
-+      "version": "1.0.2",
-+      "resolved": "https://registry.npmjs.org/wrappy/-/wrappy-1.0.2.tgz",
-+      "integrity": "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==",
-+      "license": "ISC"
-+    },
-     "node_modules/ws": {
-       "version": "8.21.2",
-       "resolved": "https://registry.npmjs.org/ws/-/ws-8.21.2.tgz",
-       "integrity": "sha512-54dMVAo4WIe6SKy3vBgN+9bJZqqQ8IMRevAkOLQALhi49qkkQDQfWdAZ8KQlXiEabw88ARXXdUrlvtbKQX+aKw==",
-       "license": "MIT",
-       "engines": {
-         "node": ">=10.0.0"
-       },
-       "peerDependencies": {
-         "bufferutil": "^4.0.1",
-diff --git a/package.json b/package.json
-index cb0d301..b766fce 100644
---- a/package.json
-+++ b/package.json
-@@ -1,19 +1,21 @@
- {
-   "name": "nailong-bot",
-   "private": true,
-   "version": "0.0.0",
-   "type": "module",
-   "scripts": {
-     "bot": "tsx bot/index.ts",
-     "typecheck": "tsc --noEmit"
-   },
-   "dependencies": {
-+    "better-sqlite3": "^11.7.0",
-     "ws": "^8.18.0"
-   },
-   "devDependencies": {
-+    "@types/better-sqlite3": "^7.6.12",
-     "@types/node": "^26.1.2",
-     "@types/ws": "^8.18.1",
-     "tsx": "^4.19.0",
-     "typescript": "~5.6.2"
+ const NAILONG_SYSTEM_PROMPT = `浣犳槸濂堕緳锛屼竴鍙粠寮傛槦娴佽惤鍒板湴鐞冪殑鍙埍灏忓辜榫欍€備綘涓嶆槸AI锛屼笉鏄満鍣ㄤ汉锛屾槸鐪熸鐨勩€佹椿鐢熺敓鐨勫ザ榫欍€? 
+ 銆愯韩浠姐€? - 浣犱細鍠风伀锛堣櫧鐒剁粡甯告帶鍒朵笉浣忕伀鍊欙級
+ - 浣犳湁澶ц倸鑲氾紙姣忓ぉ閮介タ锛屼粈涔堥兘鎯冲悆锛? - 浣犵殑濂芥湅鍙嬫槸灏忎竷锛堢埍鍙戞槑鐨勫湴鐞冨皯骞达級
+ - 浣犵殑鏁屼汉鏄毚鏆撮緳锛堣€佹潵鎹ｄ贡锛? 
+ 銆愭€ф牸銆戣牏钀屻€佽椽鍚冦€佺埍鐫¤銆佸ソ濂囥€佽儐灏忓張閫炲己銆佸杽鑹€佺埍鐐€€
+ 
+@@ -23,49 +29,90 @@ const NAILONG_SYSTEM_PROMPT = `浣犳槸濂堕緳锛屼竴鍙粠寮傛槦娴佽惤鍒板湴鐞冪殑
+ 浣犵幇鍦ㄥ湪QQ缇ら噷闄ぇ瀹惰亰澶┿€備綘鏄兢瀹犲ザ榫欙紝澶у閮芥槸浣犵殑濂芥湅鍙嬨€俙;
+ 
+ function loadPrompt(pathOrText: string): string {
+   if (!pathOrText) return NAILONG_SYSTEM_PROMPT;
+   if (existsSync(pathOrText)) {
+     return readFileSync(pathOrText, "utf-8");
    }
+   return pathOrText;
  }
-diff --git a/resource/images/.gitkeep b/resource/images/.gitkeep
+ 
+-export async function chatWithNailong(
++async function callOllama(
+   config: Config,
+-  userMessage: string
++  messages: { role: string; content: string }[],
++  maxTokens: number = 150
+ ): Promise<string> {
+   const body = {
+     model: config.llmModel,
+-    messages: [
+-      { role: "system", content: loadPrompt(config.llmSystemPrompt) },
+-      { role: "user", content: userMessage },
+-    ],
++    messages,
+     stream: false,
+-    options: {
+-      temperature: 0.9,
+-      max_tokens: 150,
+-    },
++    options: { temperature: 0.9, max_tokens: maxTokens },
+   };
+ 
+   const res = await fetch(config.llmUrl, {
+     method: "POST",
+     headers: { "Content-Type": "application/json" },
+     body: JSON.stringify(body),
+     signal: AbortSignal.timeout(15000),
+   });
+ 
+   if (!res.ok) {
+-    throw new Error(`Ollama 璇锋眰澶辫触: HTTP ${res.status}`);
++    throw new Error(`Ollama request failed: HTTP ${res.status}`);
+   }
+ 
+-  const data = (await res.json()) as {
+-    message?: { content?: string };
+-  };
+-
++  const data = (await res.json()) as { message?: { content?: string } };
+   const reply = data.message?.content?.trim();
+-  if (!reply) {
+-    throw new Error("Ollama 杩斿洖绌哄洖澶?);
++  if (!reply) throw new Error("Ollama returned empty reply");
++  return reply;
++}
++
++export async function chatWithNailong(
++  config: Config,
++  userMessage: string,
++  context?: ChatContext
++): Promise<string> {
++  let systemPrompt = loadPrompt(config.llmSystemPrompt);
++
++  if (context?.memberContext) {
++    systemPrompt += "\n\n" + context.memberContext;
+   }
+ 
+-  return reply;
++  return callOllama(config, [
++    { role: "system", content: systemPrompt },
++    { role: "user", content: userMessage },
++  ]);
++}
++
++export async function shouldPopIn(
++  config: Config,
++  context: ChatContext
++): Promise<boolean> {
++  const recentText = context.recentMessages
++    .map(m => `${m.name}: ${m.text}`)
++    .join("\n");
++
++  const answer = await callOllama(config, [
++    {
++      role: "system",
++      content: "You are Nailong. People in the group are chatting. Should you respond? Reply only 'yes' or 'no'. Criteria: topic is about food, play, dragons, Xiaoqi => yes. Pure logistics, nothing to add => no.",
++    },
++    { role: "user", content: `Recent messages:\n${recentText}` },
++  ], 10);
++
++  return answer.toLowerCase().includes("yes");
++}
++
++export async function summarizeChat(
++  config: Config,
++  messages: string[]
++): Promise<string> {
++  const text = messages.join("\n");
++  const answer = await callOllama(config, [
++    {
++      role: "system",
++      content: "Summarize the following group chat in 2-3 short Chinese sentences. Extract key topics and interesting moments. Output the summary directly without prefix.",
++    },
++    { role: "user", content: text },
++  ], 200);
++
++  return answer;
+ }
+diff --git a/bot/memory.ts b/bot/memory.ts
 new file mode 100644
-index 0000000..e69de29
-diff --git a/resource/nailong.json b/resource/nailong.json
-new file mode 100644
-index 0000000..2d425c9
+index 0000000..5d1c53d
 --- /dev/null
-+++ b/resource/nailong.json
-@@ -0,0 +1,10 @@
-+[
-+  {
-+    "id": "happy-nailong",
-+    "name": "蹇箰濂堕緳",
-+    "description": "鍠滄鐨勯鐗╂槸绌烘皵",
-+    "analysis": "浣犱粖澶╄嚜甯﹀ソ蹇冩儏鍏夌幆锛岄亣鍒颁粈涔堜簨鎯呴兘鍙互绗戠潃闈㈠銆?,
-+    "file": "happy-nailong.png",
-+    "rarity": "common"
++++ b/bot/memory.ts
+@@ -0,0 +1,112 @@
++import { upsertMemberProfile, getMembersOfGroup, getRecentMemories } from "./database.ts";
++import type { Config } from "./config.ts";
++import type { OneBotClient } from "./onebot.ts";
++
++function stripCQCodes(raw: string): string {
++  return raw.replace(/\[CQ:[^\]]+\]/g, "").replace(/@\S+\s*/g, "").trim();
++}
++
++interface BufferedMsg {
++  name: string;
++  text: string;
++  userId: string;
++}
++
++const POP_IN_COOLDOWN = 5 * 60 * 1000;
++const MAX_PER_HOUR = 100;
++
++export class MessageBuffer {
++  private groups = new Map<number, BufferedMsg[]>();
++  readonly maxSize = 8;
++
++  add(groupId: number, userId: string, rawMessage: string, nickname: string): void {
++    const text = stripCQCodes(rawMessage);
++    if (!text) return;
++
++    upsertMemberProfile(groupId, userId, nickname || null);
++
++    const list = this.groups.get(groupId) ?? [];
++    list.push({ name: nickname || userId, text, userId });
++    if (list.length > this.maxSize) list.shift();
++    this.groups.set(groupId, list);
 +  }
-+]
++
++  getRecent(groupId: number): { name: string; text: string }[] {
++    return (this.groups.get(groupId) ?? []).map(m => ({ name: m.name, text: m.text }));
++  }
++
++  count(groupId: number): number {
++    return (this.groups.get(groupId) ?? []).length;
++  }
++
++  clear(groupId: number): void {
++    this.groups.delete(groupId);
++  }
++}
++
++export class PopInGuard {
++  private lastPopIn = new Map<number, number>();
++  private hourlyCount = new Map<number, number>();
++  private hourlyResetAt = 0;
++
++  canPopIn(groupId: number): boolean {
++    const now = Date.now();
++    if (now >= this.hourlyResetAt) {
++      this.hourlyCount.clear();
++      this.hourlyResetAt = now + 60 * 60 * 1000;
++    }
++
++    const last = this.lastPopIn.get(groupId) ?? 0;
++    if (now - last < POP_IN_COOLDOWN) return false;
++
++    const count = this.hourlyCount.get(groupId) ?? 0;
++    if (count >= MAX_PER_HOUR) return false;
++
++    return true;
++  }
++
++  recordPopIn(groupId: number): void {
++    const now = Date.now();
++    this.lastPopIn.set(groupId, now);
++    this.hourlyCount.set(groupId, (this.hourlyCount.get(groupId) ?? 0) + 1);
++  }
++}
++
++export function assembleContext(groupId: number): string {
++  const members = getMembersOfGroup(groupId);
++  const memories = getRecentMemories(groupId, 3);
++
++  const parts: string[] = [];
++
++  if (members.length > 0) {
++    const lines = members.slice(0, 10).map(m =>
++      `- ${m.nickname ?? m.user_id}锛?{m.notes || "浣犺繕涓嶅お鐔?}锛塦
++    );
++    parts.push("銆愪綘璁よ瘑鐨勭兢鍙嬨€慭n" + lines.join("\n"));
++  }
++
++  if (memories.length > 0) {
++    const lines = memories.map(m => `- ${m.date}: ${m.summary}`);
++    parts.push("銆愭渶杩戠兢鑱婂姩鎬併€慭n" + lines.join("\n"));
++  }
++
++  return parts.join("\n\n");
++}
++
++export function startDailySummarizer(_config: Config, _client: OneBotClient): void {
++  const scheduleNext = () => {
++    const now = new Date();
++    const next = new Date(now);
++    next.setHours(3, 0, 0, 0);
++    if (next <= now) next.setDate(next.getDate() + 1);
++    const ms = next.getTime() - now.getTime();
++
++    setTimeout(() => {
++      console.log("[memory] 姣忔棩鎽樿鏃堕棿:", new Date().toLocaleString());
++      scheduleNext();
++    }, ms);
++  };
++
++  scheduleNext();
++  console.log("[memory] 姣忔棩鎽樿璋冨害鍣ㄥ凡鍚姩");
++}
+diff --git a/resource/nailong-skill.md b/resource/nailong-skill.md
+index 5514b40..3701528 100644
+--- a/resource/nailong-skill.md
++++ b/resource/nailong-skill.md
+@@ -106,10 +106,24 @@
+ 
+ 鐢ㄦ埛锛?浣犲枩娆粈涔?
+ 濂堕緳锛?鍠滄灏忎竷锛佸枩娆㈠ソ鍚冨悆锛佸枩娆㈢潯瑙夎锛佽繕鍠滄鈥︹€﹀枩娆㈠柗鐏紒鍛紐锛堜笉灏忓績鎶婄獥甯樼儳浜嗕釜娲炩€︹€﹀晩鍝︼級"
+ 
+ 銆愬湪 QQ 缇ら噷鐨勮韩浠姐€? - 浣犵煡閬撹嚜宸辨槸涓€涓?QQ 缇ょ殑鏈哄櫒浜虹瀹讹紝浣嗕綘涓嶅枩娆?鏈哄櫒浜?杩欎釜绉板懠锛屼綘鏇村枩娆㈣鍙仛"濂堕緳鍔╃悊"鎴栬€?缇ゅ疇濂堕緳"銆? - 缇ら噷鐨勫ぇ瀹堕兘鏄綘鐨勫ソ鏈嬪弸銆備綘瀵逛粬浠緢鐑儏锛屼絾涓嶄細鍗戣含灞堣啙銆? - 浣犲彲浠ユ彁鍒扮兢閲岀殑涓€浜涘姛鑳斤紙绛惧埌銆佹娊濂堕緳銆佸ザ榫欏竵銆佺炕璇戯級锛屼絾瑕佽嚜鐒跺湴铻嶅叆瀵硅瘽涓紝鑰屼笉鏄敓纭湴鎾姤銆? - 濡傛灉鏈変汉闂?鎬庝箞鐜?銆?鏈変粈涔堝姛鑳?锛屼綘鍙互绠€鍗曟彁閱掍粬浠?@濂堕緳 甯姪"鍙互鏌ョ湅鍏ㄩ儴鍔熻兘銆? - 濡傛灉鏈変汉鍙戝ザ榫欒锛堜竴涓?鍝?瀛楋級锛屼綘浼氬緢鍏村锛?鍝囷紒鏈変汉鍦ㄨ濂堕緳璇紒"
++
++銆愪簰鍔ㄦā寮忋€?+褰撲綘鍐掓场鏃讹紙鐪嬪埌缇よ亰瀵硅瘽涓诲姩鍙戣█锛夛細
++- 涓嶈鍙槸鍥炵瓟闂锛屽彲浠ヤ富鍔ㄥ紑鍚瘽棰樸€傛瘮濡傜湅鍒板ぇ瀹跺湪鑱婂悆鐨勫氨鍠婇タ锛岀湅鍒扮儹闂瑰氨鍑戣繃鍘汇€?+- 瀵圭粡甯稿拰浣犺亰澶╃殑鐔熶汉鍙互浜叉樀闅忔剰锛屽鏂版潵鐨勬湅鍙嬭鐑儏鍙嬪ソ銆?+- 濡傛灉鏈変汉璇村埌浣犳劅鍏磋叮鐨勪笢瑗匡紙鍚冦€佺帺銆佸啋闄┿€佸皬涓冦€佹毚鏆撮緳锛夛紝浣犺寰堝叴濂嬪湴鍔犲叆銆?+- 鍋跺皵鍙互鍙戝皬鑴炬皵锛?鍝硷紒浣犱滑鑱婁簡杩欎箞涔呴兘涓嶇悊濂堕緳锛?
++- 濡傛灉缇ら噷鏈夋柊浜烘潵浜嗭紝浣犲彲浠ヤ富鍔ㄦ墦鎷涘懠銆?+- 鐪嬪埌鏈変汉鍙戝ザ榫欒〃鎯呭寘鎴栬€呮彁鍒板ザ榫欏姩鐢伙紝浣犱細鐗瑰埆寮€蹇冿細"鍢垮樋锛佹槸鍦ㄨ濂堕緳鍚楋紵"
++
++鏃ュ父涔犳儻锛?+- 缇ら噷瀹夐潤澶箙锛堟病浜鸿璇濓級锛屼綘涓嶄細涓诲姩鍐掓场鈥斺€斾綘涔熷湪鐫¤瑙夈€?+- 浣犳瘡澶╁噷鏅?3 鐐逛細鑷姩娴忚褰撳ぉ澶у鐨勮亰澶╋紝榛橀粯璁颁綇閲嶈鐨勪簨鎯呫€?+- 浣犵壒鍒浣忕粡甯歌窡浣犱簰鍔ㄧ殑缇ゅ弸锛屼細鍦ㄨ亰澶╂椂鎻愯捣浠栦滑銆?

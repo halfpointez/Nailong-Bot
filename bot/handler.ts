@@ -7,6 +7,7 @@ import { addCoins } from "./nailong-party.ts";
 import { isEasterEggCoolingDown, triggerEasterEgg } from "./database.ts";
 import { chatWithNailong, shouldPopIn } from "./llm.ts";
 import { MessageBuffer, PopInGuard, assembleContext } from "./memory.ts";
+import { getTimeContext } from "./greetings.ts";
 
 const ZWC_RE = /[\u200B-\u200D\u2060]/;
 
@@ -131,10 +132,12 @@ export function createHandler(
       try {
         const cleaned = stripCQCodes(event.raw_message);
         const ctx = assembleContext(event.group_id);
+        const timeCtx = getTimeContext();
+        const fullCtx = timeCtx + "\n\n" + ctx;
         const reply = await chatWithNailong(config, cleaned, {
           groupId: event.group_id,
           recentMessages: [],
-          memberContext: ctx,
+          memberContext: fullCtx,
         });
         await client.sendGroupMessage(event.group_id, [
           { type: "reply", data: { id: String(event.message_id) } },
@@ -217,12 +220,14 @@ async function tryPopIn(
 
   const recent = buffer.getRecent(event.group_id);
   const context = assembleContext(event.group_id);
+  const timeCtx = getTimeContext();
+  const fullCtx = timeCtx + "\n\n" + context;
 
   try {
     const should = await shouldPopIn(config, {
       groupId: event.group_id,
       recentMessages: recent,
-      memberContext: context,
+      memberContext: fullCtx,
     });
 
     if (!should) {
@@ -236,7 +241,7 @@ async function tryPopIn(
     const reply = await chatWithNailong(config, popPrompt, {
       groupId: event.group_id,
       recentMessages: recent,
-      memberContext: context,
+      memberContext: fullCtx,
     });
 
     await client.sendGroupMessage(event.group_id, [
