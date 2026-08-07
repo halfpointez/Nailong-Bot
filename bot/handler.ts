@@ -80,11 +80,15 @@ export function createHandler(
       return;
     }
 
+    const cleaned = stripCQCodes(event.raw_message);
+    console.log(`[debug] @Bot 消息, 清洗后: "${cleaned}"`);
+
     const cmdHandled = await handleCommand(client, config, event);
     if (cmdHandled) return;
 
     const nailong = extractNailong(stripCQCodes(event.raw_message));
     if (nailong) {
+      console.log("[debug] → 奶龙语检测命中, 进入解码");
       await replyWithTranslation(client, event.group_id, event.message_id, nailong, config.replies.decodeFail);
       return;
     }
@@ -124,6 +128,7 @@ export function createHandler(
     }
 
     if (config.llmEnabled) {
+      console.log("[debug] → 进入 LLM 聊天");
       try {
         const cleaned = stripCQCodes(event.raw_message);
         const ctx = assembleContext(event.group_id);
@@ -142,6 +147,7 @@ export function createHandler(
       } catch (err) {
         console.error("[handler] LLM 调用失败:", err);
       }
+      console.log("[debug] → LLM 失败, 走兜底 notFound");
     }
 
     await replyText(client, event, config.replies.notFound);
