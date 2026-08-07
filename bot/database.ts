@@ -132,6 +132,15 @@ export async function initDb(resourceDir: string): Promise<void> {
     PRIMARY KEY (group_id, date)
   )`);
 
+  execute(`CREATE TABLE IF NOT EXISTS conversation_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id   INTEGER NOT NULL,
+    user_id    TEXT NOT NULL,
+    role       TEXT NOT NULL CHECK(role IN ('user','assistant')),
+    content    TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`);
+
   const countRow = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM nailongs");
   if (!countRow || countRow.c === 0) {
     const jsonPath = resolve(resourceDir, "nailong.json");
@@ -297,5 +306,38 @@ export function getRecentMemories(groupId: number, limit: number): ChatMemory[] 
   return queryAll<ChatMemory>(
     "SELECT * FROM chat_memories WHERE group_id = ? ORDER BY date DESC LIMIT ?",
     [groupId, limit]
+  );
+}
+
+export interface ConversationEntry {
+  id: number;
+  group_id: number;
+  user_id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
+export function logConversation(
+  groupId: number,
+  userId: string,
+  role: "user" | "assistant",
+  content: string
+): void {
+  const now = new Date().toISOString();
+  execute(
+    "INSERT INTO conversation_log (group_id, user_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
+    [groupId, userId, role, content, now]
+  );
+}
+
+export function getRecentConversations(
+  groupId: number,
+  userId: string,
+  limit: number
+): ConversationEntry[] {
+  return queryAll<ConversationEntry>(
+    "SELECT * FROM conversation_log WHERE group_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ?",
+    [groupId, userId, limit]
   );
 }

@@ -92,7 +92,7 @@ async function callOllama(
     model: config.llmModel,
     messages,
     stream: false,
-    options: { temperature: 0.9, max_tokens: maxTokens },
+    options: { temperature: 0.65, max_tokens: maxTokens },
   };
 
   const res = await fetch(config.llmUrl, {
@@ -155,12 +155,12 @@ export async function shouldPopIn(
   const answer = await callOllama(config, [
     {
       role: "system",
-      content: "You are Nailong. People in the group are chatting. Should you respond? Reply only 'yes' or 'no'. Criteria: topic is about food, play, dragons, Xiaoqi => yes. Pure logistics, nothing to add => no.",
+      content: "你是奶龙。群里正在聊天。你该冒个泡说句话吗？只回答「该」或「不该」。判断标准：话题和你相关（吃的、玩的、龙、喷火、冒险）→ 该；纯事务讨论、插不上嘴 → 不该。",
     },
-    { role: "user", content: `Recent messages:\n${recentText}` },
+    { role: "user", content: `最近消息：\n${recentText}` },
   ], 10);
 
-  return answer.toLowerCase().includes("yes");
+  return answer.includes("该") && !answer.includes("不该");
 }
 
 export async function summarizeChat(

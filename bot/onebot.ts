@@ -15,6 +15,11 @@ export interface OneBotEvent {
   user_id?: number;
   message: MessageSegment[];
   raw_message: string;
+  sender?: {
+    user_id: number;
+    nickname: string;
+    card: string;
+  };
 }
 
 export type GroupMessageEvent = OneBotEvent & {

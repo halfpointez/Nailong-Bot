@@ -1,7 +1,8 @@
-import { upsertMemberProfile, getMembersOfGroup, getRecentMemories } from "./database.ts";
+import { upsertMemberProfile, getMembersOfGroup, getRecentMemories, addOrUpdateMemory, getRecentConversations } from "./database.ts";
 import { stripCQCodes } from "./utils.ts";
 import type { Config } from "./config.ts";
 import type { OneBotClient } from "./onebot.ts";
+import { summarizeChat } from "./llm.ts";
 
 interface BufferedMsg {
   name: string;
@@ -70,13 +71,23 @@ export class PopInGuard {
   }
 }
 
-export function assembleContext(groupId: number): string {
+export function assembleContext(groupId: number, userId?: string): string {
   const members = getMembersOfGroup(groupId);
   const memories = getRecentMemories(groupId, 3);
   console.log(`[memory] assembleContext: group=${groupId}, 成员=${members.length}人, 记忆=${memories.length}条`);
   if (members.length > 0) console.log(`[memory] 最近成员: ${members.slice(0, 5).map(m => m.nickname || m.user_id).join(', ')}`);
 
   const parts: string[] = [];
+
+  if (userId) {
+    const history = getRecentConversations(groupId, userId, 5);
+    if (history.length > 0) {
+      const lines = history.reverse().map(e =>
+        `奶龙${e.role === 'user' ? '听到你说' : '说'}：${e.content.slice(0, 40)}`
+      );
+      parts.push("【你和这个人的对话记录】\n" + lines.join("\n"));
+    }
+  }
 
   if (members.length > 0) {
     const lines = members.slice(0, 10).map(m =>
@@ -93,7 +104,17 @@ export function assembleContext(groupId: number): string {
   return parts.join("\n\n");
 }
 
-export function startDailySummarizer(_config: Config, _client: OneBotClient): void {
+const dailyLog = new Map<number, string[]>();
+
+export function recordForSummary(groupId: number, text: string): void {
+  if (!text) return;
+  const log = dailyLog.get(groupId) ?? [];
+  log.push(text);
+  if (log.length > 500) log.shift();
+  dailyLog.set(groupId, log);
+}
+
+export function startDailySummarizer(config: Config, _client: OneBotClient): void {
   const scheduleNext = () => {
     const now = new Date();
     const next = new Date(now);
@@ -101,12 +122,28 @@ export function startDailySummarizer(_config: Config, _client: OneBotClient): vo
     if (next <= now) next.setDate(next.getDate() + 1);
     const ms = next.getTime() - now.getTime();
 
-    setTimeout(() => {
-      console.log("[memory] 每日摘要时间:", new Date().toLocaleString());
+    setTimeout(async () => {
+      if (config.llmEnabled) {
+        for (const [groupId, messages] of dailyLog) {
+          if (messages.length < 10) continue;
+          try {
+            const text = messages.join("\n");
+            const summary = await summarizeChat(config, [text]);
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const dateStr = yesterday.toISOString().slice(0, 10);
+            addOrUpdateMemory(groupId, dateStr, summary, "");
+            console.log(`[memory] 每日摘要: group=${groupId}, 摘要="${summary.slice(0, 80)}"`);
+          } catch (e) {
+            console.error("[memory] 摘要生成失败:", e);
+          }
+        }
+        dailyLog.clear();
+      }
       scheduleNext();
     }, ms);
   };
 
   scheduleNext();
-  console.log("[memory] 每日摘要调度器已启动");
+  console.log("[memory] 每日摘要调度器已启动（每天凌晨3点）");
 }

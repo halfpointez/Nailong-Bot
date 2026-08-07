@@ -4,9 +4,9 @@ import type { OneBotClient, GroupMessageEvent, PrivateMessageEvent, MessageSegme
 import { handleCommand } from "./commands.ts";
 import { recordMessage, checkBurst } from "./scheduler.ts";
 import { addCoins } from "./nailong-party.ts";
-import { isEasterEggCoolingDown, triggerEasterEgg } from "./database.ts";
+import { isEasterEggCoolingDown, triggerEasterEgg, logConversation } from "./database.ts";
 import { chatWithNailong, shouldPopIn } from "./llm.ts";
-import { MessageBuffer, PopInGuard, assembleContext } from "./memory.ts";
+import { MessageBuffer, PopInGuard, assembleContext, recordForSummary } from "./memory.ts";
 import { getTimeContext } from "./greetings.ts";
 import { getTimeGreeting } from "./greetings.ts";
 import { stripCQCodes } from "./utils.ts";
@@ -74,7 +74,9 @@ export function createHandler(
     if (!atBot) {
       await checkEasterEggs(client, config, event);
       if (config.llmEnabled) {
-        buffer.add(event.group_id, String(event.user_id), event.raw_message, "");
+        const nickname = event.sender?.card ?? event.sender?.nickname ?? "";
+        buffer.add(event.group_id, String(event.user_id), event.raw_message, nickname);
+        recordForSummary(event.group_id, stripCQCodes(event.raw_message));
         if (buffer.count(event.group_id) >= 5) {
           await tryPopIn(client, config, event, buffer, guard);
         }
@@ -134,18 +136,21 @@ export function createHandler(
       console.log("[handler] → LLM聊天");
       try {
         const cleaned = stripCQCodes(event.raw_message);
-        const ctx = assembleContext(event.group_id);
+        const ctx = assembleContext(event.group_id, uid);
         const timeCtx = getTimeContext();
         const fullCtx = timeCtx + "\n\n" + ctx;
+        const recent = buffer.getRecent(event.group_id);
         const reply = await chatWithNailong(config, cleaned, {
           groupId: event.group_id,
-          recentMessages: [],
+          recentMessages: recent,
           memberContext: fullCtx,
         });
         await client.sendGroupMessage(event.group_id, [
           { type: "reply", data: { id: String(event.message_id) } },
           { type: "text", data: { text: reply } },
         ]);
+        logConversation(event.group_id, String(event.user_id), "user", cleaned);
+        logConversation(event.group_id, String(event.user_id), "assistant", reply);
         return;
       } catch (err) {
         console.error("[handler] LLM 调用失败:", err);
