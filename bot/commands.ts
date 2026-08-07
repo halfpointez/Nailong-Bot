@@ -10,13 +10,7 @@ import {
 import type { Config } from "./config.ts";
 import type { OneBotClient, GroupMessageEvent, MessageSegment } from "./onebot.ts";
 import { existsSync } from "node:fs";
-
-function stripCQCodes(raw: string): string {
-  return raw
-    .replace(/\[CQ:[^\]]+\]/g, "")
-    .replace(/@\S+\s*/g, "")
-    .trim();
-}
+import { stripCQCodes } from "./utils.ts";
 
 function fileUri(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/");

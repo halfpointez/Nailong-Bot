@@ -8,15 +8,9 @@ import { isEasterEggCoolingDown, triggerEasterEgg } from "./database.ts";
 import { chatWithNailong, shouldPopIn } from "./llm.ts";
 import { MessageBuffer, PopInGuard, assembleContext } from "./memory.ts";
 import { getTimeContext } from "./greetings.ts";
+import { stripCQCodes } from "./utils.ts";
 
 const ZWC_RE = /[\u200B-\u200D\u2060]/;
-
-function stripCQCodes(rawMessage: string): string {
-  return rawMessage
-    .replace(/\[CQ:[^\]]+\]/g, "")
-    .replace(/@\S+\s*/g, "")
-    .trim();
-}
 
 function isNailong(text: string): boolean {
   return text.includes(HA) && ZWC_RE.test(text);

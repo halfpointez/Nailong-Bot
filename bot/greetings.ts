@@ -95,16 +95,19 @@ const LUNAR_HOLIDAYS: Holiday[] = [
   { month: 12, day: 22, greetings: ["冬至！今天吃饺子！奶龙包的饺子像一个个小奶龙！虽然不怎么像……"] },
 ];
 
-let morningIdx = 0;
-let noonIdx = 0;
-let nightIdx = 0;
-let lateNightIdx = 0;
-let idleTargetedIdx = 0;
-let idleGeneralIdx = 0;
+const TIME_SLOTS = [
+  { check: (h: number) => h >= 7 && h <= 10, window: "morning", pool: MORNING },
+  { check: (h: number) => h >= 11 && h <= 13, window: "noon", pool: NOON },
+  { check: (h: number) => h >= 0 && h <= 1, window: "night", pool: LATE_NIGHT },
+  { check: (h: number) => h >= 22, window: "night", pool: NIGHT },
+] as const;
 
-function next<T>(arr: T[], idx: { value: number }): T {
-  const item = arr[idx.value % arr.length];
-  idx.value++;
+let rotationCounters = new Map<string[], number>();
+
+function nextFrom(pool: string[]): string {
+  const idx = rotationCounters.get(pool) ?? 0;
+  const item = pool[idx % pool.length];
+  rotationCounters.set(pool, idx + 1);
   return item;
 }
 
@@ -112,7 +115,6 @@ function holidayGreeting(): string | null {
   const now = new Date();
   const m = now.getMonth() + 1;
   const d = now.getDate();
-
   for (const h of [...HOLIDAYS, ...LUNAR_HOLIDAYS]) {
     if (h.month === m && h.day === d) {
       return h.greetings[Math.floor(Math.random() * h.greetings.length)];
@@ -126,21 +128,17 @@ export function getTimeGreeting(): string | null {
   if (holiday) return holiday;
 
   const h = new Date().getHours();
-
-  if (h >= 7 && h <= 10)  return next(MORNING, { value: morningIdx } as { value: number });
-  if (h >= 11 && h <= 13) return next(NOON, { value: noonIdx } as { value: number });
-  if (h >= 22 || h <= 1)  {
-    if (h >= 0 && h <= 1) return next(LATE_NIGHT, { value: lateNightIdx } as { value: number });
-    if (h >= 22) return next(NIGHT, { value: nightIdx } as { value: number });
+  for (const slot of TIME_SLOTS) {
+    if (slot.check(h)) return nextFrom(slot.pool);
   }
   return null;
 }
 
 export function getTimeWindow(): string | null {
   const h = new Date().getHours();
-  if (h >= 7 && h <= 10) return "morning";
-  if (h >= 11 && h <= 13) return "noon";
-  if (h >= 22 || h <= 1) return "night";
+  for (const slot of TIME_SLOTS) {
+    if (slot.check(h)) return slot.window;
+  }
   return null;
 }
 
@@ -148,10 +146,10 @@ export function getIdleMessage(groupId: number): string {
   const members = getMembersOfGroup(groupId);
   if (members.length > 0) {
     const pick = members[Math.floor(Math.random() * Math.min(members.length, 5))];
-    const template = next(IDLE_TARGETED, { value: idleTargetedIdx } as { value: number });
+    const template = nextFrom(IDLE_TARGETED);
     return template.replace("%s", pick.nickname || pick.user_id);
   }
-  return next(IDLE_GENERAL, { value: idleGeneralIdx } as { value: number });
+  return nextFrom(IDLE_GENERAL);
 }
 
 export function getTimeContext(): string {

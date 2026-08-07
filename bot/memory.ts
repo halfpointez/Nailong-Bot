@@ -1,10 +1,7 @@
 import { upsertMemberProfile, getMembersOfGroup, getRecentMemories } from "./database.ts";
+import { stripCQCodes } from "./utils.ts";
 import type { Config } from "./config.ts";
 import type { OneBotClient } from "./onebot.ts";
-
-function stripCQCodes(raw: string): string {
-  return raw.replace(/\[CQ:[^\]]+\]/g, "").replace(/@\S+\s*/g, "").trim();
-}
 
 interface BufferedMsg {
   name: string;
