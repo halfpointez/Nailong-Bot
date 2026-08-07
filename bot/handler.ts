@@ -8,6 +8,7 @@ import { isEasterEggCoolingDown, triggerEasterEgg } from "./database.ts";
 import { chatWithNailong, shouldPopIn } from "./llm.ts";
 import { MessageBuffer, PopInGuard, assembleContext } from "./memory.ts";
 import { getTimeContext } from "./greetings.ts";
+import { getTimeGreeting } from "./greetings.ts";
 import { stripCQCodes } from "./utils.ts";
 
 const ZWC_RE = /[\u200B-\u200D\u2060]/;
@@ -250,6 +251,40 @@ async function tryPopIn(
   buffer.clear(event.group_id);
 }
 
+async function handleAdminCommand(
+  client: OneBotClient,
+  event: PrivateMessageEvent,
+  cleaned: string
+): Promise<boolean> {
+  const bubbleMatch = cleaned.match(/^冒泡\s+(\d+)/);
+  if (bubbleMatch) {
+    const groupId = parseInt(bubbleMatch[1], 10);
+    const greeting = getTimeGreeting() ?? "嘿嘿~ 奶龙来了！";
+    await client.sendGroupMessage(groupId, [
+      { type: "text", data: { text: greeting } },
+    ]);
+    await client.sendPrivateMessage(event.user_id, [
+      { type: "text", data: { text: `✅ 已在群 ${groupId} 冒泡~` } },
+    ]);
+    return true;
+  }
+
+  const sayMatch = cleaned.match(/^说\s+(\d+)\s+(.+)/);
+  if (sayMatch) {
+    const groupId = parseInt(sayMatch[1], 10);
+    const message = sayMatch[2];
+    await client.sendGroupMessage(groupId, [
+      { type: "text", data: { text: message } },
+    ]);
+    await client.sendPrivateMessage(event.user_id, [
+      { type: "text", data: { text: `✅ 已在群 ${groupId} 发言~` } },
+    ]);
+    return true;
+  }
+
+  return false;
+}
+
 export function createPrivateHandler(
   client: OneBotClient,
   config: Config
@@ -257,6 +292,11 @@ export function createPrivateHandler(
   return async (event: PrivateMessageEvent) => {
     const userId = event.user_id;
     const cleaned = stripCQCodes(event.raw_message);
+
+    if (config.adminQQ && String(userId) === config.adminQQ) {
+      const handled = await handleAdminCommand(client, event, cleaned);
+      if (handled) return;
+    }
 
     const cmdHandled = await handleCommand(client, config, event as unknown as GroupMessageEvent);
     if (cmdHandled) return;

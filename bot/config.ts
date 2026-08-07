@@ -17,6 +17,7 @@ export interface Config {
   readonly wsUrl: string;
   readonly httpUrl: string;
   readonly botQQ: string;
+  readonly adminQQ: string;
   readonly replies: ReplyMessages;
   readonly nailongResourceDir: string;
   readonly easterEggs: EasterEgg[];
@@ -63,6 +64,7 @@ export function loadConfig(): Config {
     wsUrl,
     httpUrl,
     botQQ,
+    adminQQ: env["ADMIN_QQ"] ?? process.env["ADMIN_QQ"] ?? "",
     replies: {
       decodeFail: env["REPLY_DECODE_FAIL"] ?? process.env["REPLY_DECODE_FAIL"] ?? "翻译失败，奶龙语的语法有误哦",
       notFound: env["REPLY_NOT_FOUND"] ?? process.env["REPLY_NOT_FOUND"] ?? "没有检测到奶龙语，请 @我 + 奶龙语 或引用一条奶龙语消息",
