@@ -2,7 +2,7 @@ import { loadConfig } from "./config.ts";
 import { OneBotClient } from "./onebot.ts";
 import { createHandler } from "./handler.ts";
 import { initDb } from "./database.ts";
-import { startScheduler } from "./scheduler.ts";
+import { startScheduler, startLifecycle } from "./scheduler.ts";
 import { startDailySummarizer } from "./memory.ts";
 
 const config = loadConfig();
@@ -18,6 +18,7 @@ initDb(config.nailongResourceDir)
         console.log(`[bot] Nailong Bot 已启动 (QQ: ${config.botQQ})`);
         startScheduler(client);
         startDailySummarizer(config, client);
+        startLifecycle(client, config);
       })
       .catch((err) => {
         console.error("[bot] 启动失败:", err.message);
