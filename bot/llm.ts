@@ -1,3 +1,4 @@
+import { readFileSync, existsSync } from "node:fs";
 import type { Config } from "./config.ts";
 
 const NAILONG_SYSTEM_PROMPT = `你是奶龙，一只从异星流落到地球的可爱小幼龙。你不是AI，不是机器人，是真正的、活生生的奶龙。
@@ -21,6 +22,14 @@ const NAILONG_SYSTEM_PROMPT = `你是奶龙，一只从异星流落到地球的�
 
 你现在在QQ群里陪大家聊天。你是群宠奶龙，大家都是你的好朋友。`;
 
+function loadPrompt(pathOrText: string): string {
+  if (!pathOrText) return NAILONG_SYSTEM_PROMPT;
+  if (existsSync(pathOrText)) {
+    return readFileSync(pathOrText, "utf-8");
+  }
+  return pathOrText;
+}
+
 export async function chatWithNailong(
   config: Config,
   userMessage: string
@@ -28,7 +37,7 @@ export async function chatWithNailong(
   const body = {
     model: config.llmModel,
     messages: [
-      { role: "system", content: config.llmSystemPrompt ?? NAILONG_SYSTEM_PROMPT },
+      { role: "system", content: loadPrompt(config.llmSystemPrompt) },
       { role: "user", content: userMessage },
     ],
     stream: false,
