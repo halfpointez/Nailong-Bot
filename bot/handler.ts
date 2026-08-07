@@ -1,10 +1,10 @@
 import { decodeFromNailong, HA } from "../src/nailong.ts";
 import type { Config } from "./config.ts";
-import type {
-  OneBotClient,
-  GroupMessageEvent,
-  MessageSegment,
-} from "./onebot.ts";
+import type { OneBotClient, GroupMessageEvent, MessageSegment } from "./onebot.ts";
+import { handleCommand } from "./commands.ts";
+import { recordMessage, checkBurst } from "./scheduler.ts";
+import { addCoins } from "./nailong-party.ts";
+import { isEasterEggCoolingDown, triggerEasterEgg } from "./database.ts";
 
 const ZWC_RE = /[\u200B-\u200D\u2060]/;
 
@@ -17,31 +17,20 @@ function isNailong(text: string): boolean {
 }
 
 function extractNailong(rawMessage: string): string | null {
-  if (isNailong(rawMessage)) {
-    return rawMessage;
+  if (isNailong(rawMessage)) return rawMessage;
+  return null;
+}
+
+function findReplySegment(message: MessageSegment[]): { id: string } | null {
+  for (const seg of message) {
+    if (seg.type === "reply") return seg.data as { id: string };
   }
   return null;
 }
 
-function findReplySegment(
-  message: MessageSegment[]
-): { id: string } | null {
+function isAtBot(message: MessageSegment[], botQQ: string): boolean {
   for (const seg of message) {
-    if (seg.type === "reply") {
-      return seg.data as { id: string };
-    }
-  }
-  return null;
-}
-
-function isAtBot(
-  message: MessageSegment[],
-  botQQ: string
-): boolean {
-  for (const seg of message) {
-    if (seg.type === "at" && seg.data.qq === botQQ) {
-      return true;
-    }
+    if (seg.type === "at" && seg.data.qq === botQQ) return true;
   }
   return false;
 }
@@ -53,9 +42,7 @@ export class MessageCache {
   add(event: GroupMessageEvent): void {
     const list = this.groups.get(event.group_id) ?? [];
     list.push(event);
-    if (list.length > this.maxSize) {
-      list.shift();
-    }
+    if (list.length > this.maxSize) list.shift();
     this.groups.set(event.group_id, list);
   }
 
@@ -75,17 +62,21 @@ export function createHandler(
   return async (event: GroupMessageEvent) => {
     cache.add(event);
 
-    if (!isAtBot(event.message, config.botQQ)) return;
+    const uid = String(event.user_id);
+    recordMessage(event.group_id, uid);
+    await checkBurst(client, event.group_id);
+
+    if (!isAtBot(event.message, config.botQQ)) {
+      await checkEasterEggs(client, config, event);
+      return;
+    }
+
+    const cmdHandled = await handleCommand(client, config, event);
+    if (cmdHandled) return;
 
     const nailong = extractNailong(stripCQCodes(event.raw_message));
     if (nailong) {
-      await replyWithTranslation(
-        client,
-        event.group_id,
-        event.message_id,
-        nailong,
-        config.replies.decodeFail
-      );
+      await replyWithTranslation(client, event.group_id, event.message_id, nailong, config.replies.decodeFail);
       return;
     }
 
@@ -95,13 +86,7 @@ export function createHandler(
         const replied = await client.getMessage(Number(replySeg.id));
         const rn = extractNailong(stripCQCodes(replied.raw_message));
         if (rn) {
-          await replyWithTranslation(
-            client,
-            event.group_id,
-            Number(replySeg.id),
-            rn,
-            config.replies.decodeFail
-          );
+          await replyWithTranslation(client, event.group_id, Number(replySeg.id), rn, config.replies.decodeFail);
           return;
         }
       } catch {
@@ -114,19 +99,36 @@ export function createHandler(
     if (prev) {
       const pn = extractNailong(stripCQCodes(prev.raw_message));
       if (pn) {
-        await replyWithTranslation(
-          client,
-          event.group_id,
-          prev.message_id,
-          pn,
-          config.replies.decodeFail
-        );
+        await replyWithTranslation(client, event.group_id, prev.message_id, pn, config.replies.decodeFail);
         return;
       }
     }
 
     await replyText(client, event, config.replies.notFound);
   };
+}
+
+async function checkEasterEggs(
+  client: OneBotClient,
+  config: Config,
+  event: GroupMessageEvent
+): Promise<void> {
+  const raw = event.raw_message;
+  const date = new Date().toISOString().slice(0, 10);
+  const userId = String(event.user_id);
+
+  for (const egg of config.easterEggs) {
+    if (!raw.includes(egg.keyword)) continue;
+    if (isEasterEggCoolingDown(userId, egg.keyword, date)) continue;
+
+    triggerEasterEgg(userId, egg.keyword, date);
+    addCoins(userId, egg.coins);
+    await client.sendGroupMessage(event.group_id, [
+      { type: "reply", data: { id: String(event.message_id) } },
+      { type: "text", data: { text: egg.reply } },
+    ]);
+    return;
+  }
 }
 
 async function replyWithTranslation(
